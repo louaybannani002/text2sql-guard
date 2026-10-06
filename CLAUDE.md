@@ -84,6 +84,16 @@ make down        # stop services (`make down-volumes` also wipes data)
   view, opaque dense_rank of the restricted `customer_unique_id`). Refresh materialized views
   after every data load: `make refresh-views` (`make load-data` does it automatically).
 
+## LLM calls
+
+- Every LLM call goes through `text2sql.llm.generate_structured(messages, ResponseModel, role)`.
+  It returns `LLMResult(output, usage)`; log or persist `usage` (tokens, latency, cost, attempts).
+- Roles `main` / `fast` / `local` map to LiteLLM model names in env (`LLM_MODEL_*`); never
+  hard-code a model name in code. Catch `LLMError` (subclasses: timeout, provider, output
+  validation — the latter carries `raw_output`, `errors` and the `usage` already spent).
+- Import LiteLLM only via `text2sql.llm._litellm` (it pins the offline price map and disables
+  telemetry before LiteLLM loads). Never log prompts or raw model output.
+
 ## Integration tests
 
 `make test-integration` (marker `integration`; plain `make test` skips them):

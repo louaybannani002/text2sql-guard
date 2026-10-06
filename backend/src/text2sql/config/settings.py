@@ -44,7 +44,13 @@ class Settings(BaseSettings):
 
     # LLM
     openai_api_key: SecretStr
-    openai_model: str = "gpt-4o-mini"
+    # LiteLLM model names per role ("provider/model"); swap models via env, not code.
+    llm_model_main: str
+    llm_model_fast: str
+    llm_model_local: str
+    llm_local_api_base: str | None = None  # e.g. http://127.0.0.1:11434 for Ollama
+    llm_timeout_s: float = Field(default=30.0, gt=0)
+    llm_max_retries: int = Field(default=2, ge=0, le=5)
 
     # Observability
     langfuse_public_key: SecretStr

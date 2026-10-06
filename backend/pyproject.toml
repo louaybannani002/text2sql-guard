@@ -8,6 +8,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "asyncpg>=0.30",
     "fastapi>=0.115",
+    "litellm>=1.104.0",
+    "openai>=2.54.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "redis>=5.2",
@@ -102,4 +104,8 @@ markers = ["integration: needs the docker-compose services (`make up`); run with
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"  # integration tests share session connections
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # Raised by pydantic on LiteLLM's own TypedDicts; nothing we can fix on our side.
+    "ignore:Item .* is using the `ReadOnly` qualifier:UserWarning",
+]
