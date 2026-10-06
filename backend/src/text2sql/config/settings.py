@@ -32,8 +32,8 @@ class Settings(BaseSettings):
     # Database (secret: contains credentials)
     database_url: SecretStr
 
-    # Cache
-    redis_url: str = "redis://localhost:6379/0"
+    # Cache (secret: contains the password)
+    redis_url: SecretStr
 
     # LLM
     openai_api_key: SecretStr

@@ -8,6 +8,7 @@ from text2sql.config.settings import Settings, get_settings
 FAKE_ENV = {
     "APP_ENV": "test",
     "DATABASE_URL": "postgresql+asyncpg://user:pw@localhost:5432/test",
+    "REDIS_URL": "redis://:pw@localhost:6379/0",
     "OPENAI_API_KEY": "sk-test-not-a-real-key",
     "LANGFUSE_PUBLIC_KEY": "pk-lf-test",
     "LANGFUSE_SECRET_KEY": "sk-lf-test",

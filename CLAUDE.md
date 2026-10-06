@@ -40,10 +40,18 @@ make install     # uv sync --all-groups
 make lint        # ruff check + ruff format --check
 make format      # auto-fix
 make typecheck   # mypy --strict
-make test        # pytest
+make test        # pytest (unit tests; `integration` marker deselected)
 make run         # uvicorn with reload on 127.0.0.1:8000
 make check       # lint + typecheck + test — must pass before every commit
+
+make up          # start postgres (pgvector, pg16) + redis 7 from ../docker-compose.yml
+make test-integration  # smoke tests against those services
+make psql        # psql shell in the postgres container
+make down        # stop services (`make down-volumes` also wipes data)
 ```
+
+Local service credentials (`POSTGRES_*`, `REDIS_*`) live in `backend/.env` and must match
+`DATABASE_URL` / `REDIS_URL`. SQL files in `backend/db/init/` run once, on an empty volume.
 
 Without `make` (e.g. plain Windows), run the underlying `uv run …` commands from the Makefile.
 

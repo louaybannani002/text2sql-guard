@@ -5,6 +5,7 @@ from text2sql.config.settings import Settings
 
 SECRET_VARS = [
     "DATABASE_URL",
+    "REDIS_URL",
     "OPENAI_API_KEY",
     "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_SECRET_KEY",
