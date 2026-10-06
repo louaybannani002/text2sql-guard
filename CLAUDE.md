@@ -93,6 +93,12 @@ make down        # stop services (`make down-volumes` also wipes data)
   validation — the latter carries `raw_output`, `errors` and the `usage` already spent).
 - Import LiteLLM only via `text2sql.llm._litellm` (it pins the offline price map and disables
   telemetry before LiteLLM loads). Never log prompts or raw model output.
+- Prompts live in `src/text2sql/llm/prompts/<name>_v<N>.system.md` + `.user.md` (a
+  `string.Template`), loaded with `load_prompt("<name>_v<N>")`; the caller pins the version
+  (e.g. `PROMPT_NAME = "generate_v1"` in `pipeline/generate.py`). Never change a released
+  version's meaning in place — add `_v<N+1>` and switch the constant, so the change is one
+  reviewable diff and old runs stay reproducible. User input goes only into the user template,
+  inside tags (`<question>`), never into the system prompt.
 
 ## Integration tests
 

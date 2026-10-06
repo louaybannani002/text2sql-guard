@@ -1,8 +1,10 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import pytest
 
+from tests.support.fake_llm import FakeCompletion, Outcome
 from text2sql.config.settings import Settings, get_settings
+from text2sql.llm._litellm import litellm
 
 # Obviously fake values: tests must never depend on a real .env.
 FAKE_ENV = {
@@ -34,3 +36,15 @@ def fake_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, str]]:
 def settings(fake_env: dict[str, str]) -> Settings:
     del fake_env
     return Settings(_env_file=None)
+
+
+@pytest.fixture
+def fake_llm(monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeCompletion]:
+    """Replace ``litellm.acompletion`` with a FakeCompletion replaying the given outcomes."""
+
+    def install(*outcomes: Outcome) -> FakeCompletion:
+        completion = FakeCompletion(*outcomes)
+        monkeypatch.setattr(litellm, "acompletion", completion)
+        return completion
+
+    return install

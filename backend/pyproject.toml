@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "redis>=5.2",
+    "sqlglot>=30.21.0",
     "structlog>=24.4",
     "uvicorn[standard]>=0.32",
 ]

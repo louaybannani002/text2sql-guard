@@ -24,7 +24,9 @@ def configure_logging(level: str = "INFO", *, json: bool = True) -> None:
     structlog.configure(
         processors=[*shared, structlog.processors.format_exc_info, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(level)),
-        logger_factory=structlog.PrintLoggerFactory(sys.stdout),
+        # No explicit file: stdout is looked up at write time, so a replaced sys.stdout
+        # (test capture, reconfigured streams) is honoured instead of a stale handle.
+        logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )
     logging.basicConfig(level=level, format="%(message)s", stream=sys.stdout, force=True)

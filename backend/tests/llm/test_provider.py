@@ -1,22 +1,21 @@
 import asyncio
 from collections.abc import Callable
-from typing import Any
 
 import pytest
 from litellm import ModelResponse
 from litellm import exceptions as llm_exc
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel
 
+from tests.support.fake_llm import FakeCompletion
+from tests.support.fake_llm import llm_config as _config
+from tests.support.fake_llm import model_response as _response
 from text2sql.llm import (
-    LLMConfig,
     LLMOutputValidationError,
     LLMProviderError,
     LLMTimeoutError,
     Message,
-    RetryPolicy,
     generate_structured,
 )
-from text2sql.llm._litellm import litellm
 
 MESSAGES: list[Message] = [{"role": "user", "content": "Which country has the most orders?"}]
 
@@ -26,61 +25,11 @@ class Answer(BaseModel):
     orders: int
 
 
-def _config(**overrides: Any) -> LLMConfig:  # noqa: ANN401
-    defaults: dict[str, Any] = {
-        "models": {
-            "main": "openai/gpt-5.4",
-            "fast": "openai/gpt-5.4-mini",
-            "local": "ollama_chat/qwen2.5-coder:7b",
-        },
-        "timeout_s": 5.0,
-        "retry": RetryPolicy(max_retries=2, base_delay_s=0.0),
-        "openai_api_key": SecretStr("sk-test-not-a-real-key"),
-        "local_api_base": "http://127.0.0.1:11434",
-    }
-    return LLMConfig(**(defaults | overrides))
-
-
-def _response(content: str | None, model: str = "gpt-5.4-mini", **message: Any) -> ModelResponse:  # noqa: ANN401
-    return ModelResponse(
-        model=model,
-        choices=[{"message": {"role": "assistant", "content": content, **message}}],
-        usage={"prompt_tokens": 120, "completion_tokens": 30, "total_tokens": 150},
-    )
-
-
-class FakeCompletion:
-    """Stands in for ``litellm.acompletion``: replays scripted outcomes, records calls."""
-
-    def __init__(self, *outcomes: ModelResponse | BaseException | Callable[[], Any]) -> None:
-        self.outcomes = list(outcomes)
-        self.calls: list[dict[str, Any]] = []
-
-    async def __call__(self, **kwargs: Any) -> ModelResponse:  # noqa: ANN401
-        self.calls.append(kwargs)
-        outcome = self.outcomes.pop(0)
-        if isinstance(outcome, BaseException):
-            raise outcome
-        if callable(outcome):
-            return await outcome()
-        return outcome
-
-
-@pytest.fixture
-def fake(monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeCompletion]:
-    def install(*outcomes: ModelResponse | BaseException | Callable[[], Any]) -> FakeCompletion:
-        completion = FakeCompletion(*outcomes)
-        monkeypatch.setattr(litellm, "acompletion", completion)
-        return completion
-
-    return install
-
-
 # ---------------------------------------------------------------- happy path
 
 
-async def test_returns_validated_object_and_usage(fake: Callable[..., FakeCompletion]) -> None:
-    fake(_response('{"country": "BR", "orders": 99441}'))
+async def test_returns_validated_object_and_usage(fake_llm: Callable[..., FakeCompletion]) -> None:
+    fake_llm(_response('{"country": "BR", "orders": 99441}'))
     result = await generate_structured(MESSAGES, Answer, "fast", config=_config())
 
     assert result.output == Answer(country="BR", orders=99441)
@@ -98,9 +47,9 @@ async def test_returns_validated_object_and_usage(fake: Callable[..., FakeComple
     [("main", "openai/gpt-5.4"), ("fast", "openai/gpt-5.4-mini")],
 )
 async def test_role_selects_configured_model_and_key(
-    fake: Callable[..., FakeCompletion], role: str, model: str
+    fake_llm: Callable[..., FakeCompletion], role: str, model: str
 ) -> None:
-    completion = fake(_response('{"country": "BR", "orders": 1}'))
+    completion = fake_llm(_response('{"country": "BR", "orders": 1}'))
     await generate_structured(MESSAGES, Answer, role, config=_config())  # type: ignore[arg-type]
 
     call = completion.calls[0]
@@ -115,9 +64,9 @@ async def test_role_selects_configured_model_and_key(
 
 
 async def test_local_role_uses_api_base_and_no_openai_key(
-    fake: Callable[..., FakeCompletion],
+    fake_llm: Callable[..., FakeCompletion],
 ) -> None:
-    completion = fake(_response('{"country": "BR", "orders": 1}', model="qwen2.5-coder:7b"))
+    completion = fake_llm(_response('{"country": "BR", "orders": 1}', model="qwen2.5-coder:7b"))
     result = await generate_structured(MESSAGES, Answer, "local", config=_config())
 
     call = completion.calls[0]
@@ -127,8 +76,8 @@ async def test_local_role_uses_api_base_and_no_openai_key(
     assert result.usage.cost_usd is None  # unpriced model: unknown, not zero
 
 
-async def test_strips_markdown_code_fence(fake: Callable[..., FakeCompletion]) -> None:
-    fake(_response('```json\n{"country": "BR", "orders": 7}\n```'))
+async def test_strips_markdown_code_fence(fake_llm: Callable[..., FakeCompletion]) -> None:
+    fake_llm(_response('```json\n{"country": "BR", "orders": 7}\n```'))
     result = await generate_structured(MESSAGES, Answer, "fast", config=_config())
     assert result.output.orders == 7
 
@@ -154,17 +103,17 @@ NOT_RETRYABLE: dict[str, Callable[[], BaseException]] = {
 
 @pytest.mark.parametrize("make_error", RETRYABLE.values(), ids=RETRYABLE.keys())
 async def test_retries_rate_limits_and_5xx(
-    fake: Callable[..., FakeCompletion], make_error: Callable[[], BaseException]
+    fake_llm: Callable[..., FakeCompletion], make_error: Callable[[], BaseException]
 ) -> None:
-    completion = fake(make_error(), make_error(), _response('{"country": "BR", "orders": 1}'))
+    completion = fake_llm(make_error(), make_error(), _response('{"country": "BR", "orders": 1}'))
     result = await generate_structured(MESSAGES, Answer, "fast", config=_config())
     assert len(completion.calls) == 3
     assert result.usage.attempts == 3
 
 
-async def test_gives_up_after_two_retries(fake: Callable[..., FakeCompletion]) -> None:
+async def test_gives_up_after_two_retries(fake_llm: Callable[..., FakeCompletion]) -> None:
     errors = [RETRYABLE["rate_limit_429"]() for _ in range(4)]
-    completion = fake(*errors)
+    completion = fake_llm(*errors)
     with pytest.raises(LLMProviderError) as caught:
         await generate_structured(MESSAGES, Answer, "fast", config=_config())
 
@@ -176,9 +125,9 @@ async def test_gives_up_after_two_retries(fake: Callable[..., FakeCompletion]) -
 
 @pytest.mark.parametrize("make_error", NOT_RETRYABLE.values(), ids=NOT_RETRYABLE.keys())
 async def test_client_errors_are_not_retried(
-    fake: Callable[..., FakeCompletion], make_error: Callable[[], BaseException]
+    fake_llm: Callable[..., FakeCompletion], make_error: Callable[[], BaseException]
 ) -> None:
-    completion = fake(make_error())
+    completion = fake_llm(make_error())
     with pytest.raises(LLMProviderError) as caught:
         await generate_structured(MESSAGES, Answer, "fast", config=_config())
     assert len(completion.calls) == 1
@@ -186,7 +135,7 @@ async def test_client_errors_are_not_retried(
 
 
 async def test_backoff_sleeps_between_retries(
-    fake: Callable[..., FakeCompletion], monkeypatch: pytest.MonkeyPatch
+    fake_llm: Callable[..., FakeCompletion], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     delays: list[float] = []
     real_sleep = asyncio.sleep
@@ -197,7 +146,7 @@ async def test_backoff_sleeps_between_retries(
 
     monkeypatch.setattr("text2sql.llm.provider.asyncio.sleep", recording_sleep)
     monkeypatch.setattr("text2sql.llm.provider.backoff_delay", lambda retry, _policy: 0.1 * retry)
-    fake(
+    fake_llm(
         RETRYABLE["internal_500"](),
         RETRYABLE["internal_500"](),
         _response('{"country": "BR", "orders": 1}'),
@@ -210,19 +159,23 @@ async def test_backoff_sleeps_between_retries(
 # ---------------------------------------------------------------- timeouts
 
 
-async def test_hung_provider_times_out_without_retry(fake: Callable[..., FakeCompletion]) -> None:
+async def test_hung_provider_times_out_without_retry(
+    fake_llm: Callable[..., FakeCompletion],
+) -> None:
     async def hang() -> ModelResponse:
         await asyncio.sleep(5)
         return _response("{}")
 
-    completion = fake(hang)
+    completion = fake_llm(hang)
     with pytest.raises(LLMTimeoutError):
         await generate_structured(MESSAGES, Answer, "fast", config=_config(timeout_s=0.05))
     assert len(completion.calls) == 1
 
 
-async def test_provider_timeout_maps_to_timeout_error(fake: Callable[..., FakeCompletion]) -> None:
-    completion = fake(llm_exc.Timeout("too slow", "gpt-5.4-mini", "openai"))
+async def test_provider_timeout_maps_to_timeout_error(
+    fake_llm: Callable[..., FakeCompletion],
+) -> None:
+    completion = fake_llm(llm_exc.Timeout("too slow", "gpt-5.4-mini", "openai"))
     with pytest.raises(LLMTimeoutError):
         await generate_structured(MESSAGES, Answer, "fast", config=_config())
     assert len(completion.calls) == 1
@@ -241,9 +194,9 @@ async def test_provider_timeout_maps_to_timeout_error(fake: Callable[..., FakeCo
     ],
 )
 async def test_invalid_output_raises_validation_error(
-    fake: Callable[..., FakeCompletion], content: str
+    fake_llm: Callable[..., FakeCompletion], content: str
 ) -> None:
-    fake(_response(content))
+    fake_llm(_response(content))
     with pytest.raises(LLMOutputValidationError) as caught:
         await generate_structured(MESSAGES, Answer, "fast", config=_config())
 
@@ -254,15 +207,15 @@ async def test_invalid_output_raises_validation_error(
     assert "Answer" in str(error)
 
 
-async def test_raw_output_is_not_in_error_message(fake: Callable[..., FakeCompletion]) -> None:
-    fake(_response('{"secret_customer_city": "campinas"}'))
+async def test_raw_output_is_not_in_error_message(fake_llm: Callable[..., FakeCompletion]) -> None:
+    fake_llm(_response('{"secret_customer_city": "campinas"}'))
     with pytest.raises(LLMOutputValidationError) as caught:
         await generate_structured(MESSAGES, Answer, "fast", config=_config())
     assert "campinas" not in str(caught.value)
 
 
-async def test_refusal_is_reported(fake: Callable[..., FakeCompletion]) -> None:
-    fake(_response(None, refusal="I can't help with that."))
+async def test_refusal_is_reported(fake_llm: Callable[..., FakeCompletion]) -> None:
+    fake_llm(_response(None, refusal="I can't help with that."))
     with pytest.raises(LLMOutputValidationError) as caught:
         await generate_structured(MESSAGES, Answer, "fast", config=_config())
     assert caught.value.refusal == "I can't help with that."
