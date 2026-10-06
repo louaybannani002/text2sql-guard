@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test test-integration run check up down down-volumes psql
+.PHONY: help install lint format typecheck test test-integration run check up down down-volumes psql migrate load-data
 
 COMPOSE := docker compose -f ../docker-compose.yml --env-file .env
 
@@ -42,3 +42,9 @@ down-volumes: ## Stop services AND delete their data volumes
 
 psql: ## Open a psql shell in the postgres container
 	$(COMPOSE) exec postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
+
+migrate: ## Apply pending SQL migrations from db/migrations/
+	uv run python -m text2sql.db migrate
+
+load-data: migrate ## (Re)load the Olist CSVs from data/raw/ into the shop schema
+	uv run python -m text2sql.db load-olist

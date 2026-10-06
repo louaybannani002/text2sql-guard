@@ -46,9 +46,23 @@ make check       # lint + typecheck + test — must pass before every commit
 
 make up          # start postgres (pgvector, pg16) + redis 7 from ../docker-compose.yml
 make test-integration  # smoke tests against those services
+make migrate     # apply pending SQL migrations
+make load-data   # migrate, then (re)load the Olist CSVs into schema `shop`
 make psql        # psql shell in the postgres container
 make down        # stop services (`make down-volumes` also wipes data)
 ```
+
+## Database & data
+
+- Schema changes are **numbered SQL migrations** in `backend/db/migrations/NNNN_description.sql`,
+  applied by `make migrate` (`text2sql.db.migrations`). Never hand-run SQL, and never edit an
+  applied migration (its checksum is verified): add a new file instead.
+- Analytics data lives in the Postgres schema `shop` (Olist e-commerce dataset). Every table and
+  column has a `COMMENT` in plain business language; these feed the LLM, so any new table or
+  column must get one too (an integration test enforces it).
+- Raw CSVs go in `backend/data/raw/` (git-ignored, never committed). `make load-data` migrates,
+  then truncates and reloads `shop` in one transaction (idempotent).
+- Integration tests (`make test-integration`) build and drop their own `text2sql_test` database.
 
 Local service credentials (`POSTGRES_*`, `REDIS_*`) live in `backend/.env` and must match
 `DATABASE_URL` / `REDIS_URL`. SQL files in `backend/db/init/` run once, on an empty volume.

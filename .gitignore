@@ -43,3 +43,6 @@ crash.log
 *.swp
 .DS_Store
 Thumbs.db
+
+# --- Data (never commit raw datasets) ---
+backend/data/raw/

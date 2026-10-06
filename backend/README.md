@@ -7,7 +7,8 @@ cp .env.example .env   # then fill in secrets
 make install
 make up                # postgres (pgvector) + redis in docker
 make check             # lint + typecheck + test
-make test-integration  # smoke tests against the docker services
+make load-data         # migrate + load Olist CSVs from data/raw/
+make test-integration  # smoke + data integrity tests against the docker services
 make run               # http://127.0.0.1:8000/healthz
 ```
 

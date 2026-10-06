@@ -21,6 +21,7 @@ cp .env.example .env   # fill in secrets
 make install
 make up                 # postgres (pgvector) + redis via docker compose
 make check
+make load-data          # migrate + load Olist CSVs from backend/data/raw/
 make test-integration
 make run
 ```

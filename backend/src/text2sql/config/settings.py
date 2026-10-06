@@ -1,6 +1,7 @@
 """Typed application settings, read exclusively from the environment."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AnyHttpUrl, Field, SecretStr
@@ -31,6 +32,8 @@ class Settings(BaseSettings):
 
     # Database (secret: contains credentials)
     database_url: SecretStr
+    migrations_dir: Path = Path("db/migrations")
+    raw_data_dir: Path = Path("data/raw")
 
     # Cache (secret: contains the password)
     redis_url: SecretStr
