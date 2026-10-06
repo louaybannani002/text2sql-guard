@@ -1,111 +1,249 @@
-"""Shared throwaway database: migrated, role passwords synced, Olist data loaded (twice).
+"""Integration fixtures: one service start-up, one migrated database, per-test rollback.
 
-Needs `make up` and the CSVs in data/raw/. Dev data is never touched.
+- ``compose_services`` starts the docker-compose services once per session.
+- ``shared_db`` is a persistent ``text2sql_test`` database: migrated every session, and
+  (re)loaded with the Olist CSVs only when the data, loader or migrations changed.
+- ``reader`` / ``app`` / ``admin`` are session-long connections; every test gets them inside a
+  transaction that is rolled back afterwards, so tests cannot leak state into each other.
+- ``fresh_db`` is a brand-new, data-less database for the role-bootstrap tests only.
 """
 
 import asyncio
-from collections.abc import Iterator
-from dataclasses import dataclass
+import hashlib
+import shutil
+import subprocess
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
 import pytest
+import pytest_asyncio
 
+import text2sql.db.olist
+from tests.integration.support import Database
 from text2sql.config.settings import Settings
 from text2sql.db.connection import asyncpg_dsn
-from text2sql.db.migrations import migrate
+from text2sql.db.migrations import MigrationError, discover, migrate
 from text2sql.db.olist.loader import load_all
 from text2sql.db.olist.tables import TABLES
 from text2sql.db.roles import APP_ROLE, READER_ROLE, sync_login_passwords
+from text2sql.db.views import refresh_materialized_views
 
 BACKEND = Path(__file__).parents[2]
-TEST_DB = "text2sql_test"
-
-
-@dataclass(frozen=True)
-class _TestDatabase:
-    admin_dsn: str
-    reader_dsn: str
-    app_dsn: str
-    load_reports: list[dict[str, int]]
-    reapplied_migrations: int
+SHARED_DB = "text2sql_test"
+FRESH_DB = "text2sql_fresh"
 
 
 def _with_database(dsn: str, database: str) -> str:
     return urlunsplit(urlsplit(dsn)._replace(path=f"/{database}"))
 
 
-async def _recreate(maintenance_dsn: str, *, drop_only: bool = False) -> None:
-    conn = await asyncpg.connect(maintenance_dsn)
-    try:
-        await conn.execute(f"DROP DATABASE IF EXISTS {TEST_DB} WITH (FORCE)")
-        if not drop_only:
-            await conn.execute(f"CREATE DATABASE {TEST_DB}")
-    finally:
-        await conn.close()
-
-
-async def _prepare(
-    settings: Settings, admin_dsn: str, raw_dir: Path
-) -> tuple[list[dict[str, int]], int]:
-    migrations_dir = BACKEND / settings.migrations_dir
-    conn = await asyncpg.connect(admin_dsn)
-    try:
-        await migrate(conn, migrations_dir)
-        await sync_login_passwords(
-            conn, {READER_ROLE: settings.reader_database_url, APP_ROLE: settings.app_database_url}
-        )
-        reports = [await load_all(conn, raw_dir), await load_all(conn, raw_dir)]
-        reapplied = len(await migrate(conn, migrations_dir))
-    finally:
-        await conn.close()
-    return reports, reapplied
+# ---------------------------------------------------------------- session setup
 
 
 @pytest.fixture(scope="session")
-def _test_database() -> Iterator[_TestDatabase]:
-    settings = Settings()  # reads backend/.env
-    raw_dir = BACKEND / settings.raw_data_dir
-    if not all((raw_dir / spec.csv_file).exists() for spec in TABLES):
-        pytest.skip(f"Olist CSVs not found in {raw_dir}")
+def real_settings() -> Settings:
+    return Settings()  # reads backend/.env
 
-    base = asyncpg_dsn(settings.database_url)
-    maintenance_dsn, admin_dsn = _with_database(base, "postgres"), _with_database(base, TEST_DB)
-    asyncio.run(_recreate(maintenance_dsn))
+
+@pytest.fixture(scope="session", autouse=True)
+def compose_services() -> None:
+    """Start postgres + redis once per session (no-op if already running)."""
+    docker = shutil.which("docker")
+    if docker is None:
+        pytest.skip("docker is not installed")
+    compose_up = [docker, "compose", "-f", "../docker-compose.yml", "--env-file", ".env"]
+    subprocess.run(  # noqa: S603 - fixed argument list, no user input
+        [*compose_up, "up", "-d", "--wait"],
+        cwd=BACKEND,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _fingerprint(settings: Settings) -> str:
+    """Changes whenever the loaded data would change: CSVs, loader code or migrations."""
+    digest = hashlib.sha256()
+    for spec in TABLES:
+        stat = (BACKEND / settings.raw_data_dir / spec.csv_file).stat()
+        digest.update(f"{spec.csv_file}:{stat.st_size}:{stat.st_mtime_ns}".encode())
+    package_dir = Path(text2sql.db.olist.__file__).parent
+    for source in sorted([*package_dir.glob("*.py"), package_dir.parent / "views.py"]):
+        digest.update(source.read_bytes())
+    for migration in discover(BACKEND / settings.migrations_dir):
+        digest.update(migration.checksum.encode())
+    return digest.hexdigest()
+
+
+async def _create_database(maintenance_dsn: str, name: str, *, replace: bool) -> None:
+    conn = await asyncpg.connect(maintenance_dsn)
     try:
-        reports, reapplied = asyncio.run(_prepare(settings, admin_dsn, raw_dir))
-        yield _TestDatabase(
-            admin_dsn=admin_dsn,
-            reader_dsn=_with_database(asyncpg_dsn(settings.reader_database_url), TEST_DB),
-            app_dsn=_with_database(asyncpg_dsn(settings.app_database_url), TEST_DB),
-            load_reports=reports,
-            reapplied_migrations=reapplied,
+        if replace:
+            await conn.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+        if not await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", name):
+            await conn.execute(f"CREATE DATABASE {name}")
+    finally:
+        await conn.close()
+
+
+async def _drop_database(maintenance_dsn: str, name: str) -> None:
+    conn = await asyncpg.connect(maintenance_dsn)
+    try:
+        await conn.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+    finally:
+        await conn.close()
+
+
+async def _migrate_and_sync(settings: Settings, admin_dsn: str) -> int:
+    conn = await asyncpg.connect(admin_dsn)
+    try:
+        applied = await migrate(conn, BACKEND / settings.migrations_dir)
+        await sync_login_passwords(
+            conn, {READER_ROLE: settings.reader_database_url, APP_ROLE: settings.app_database_url}
         )
     finally:
-        asyncio.run(_recreate(maintenance_dsn, drop_only=True))
+        await conn.close()
+    return len(applied)
 
 
-@pytest.fixture
-def admin_dsn(_test_database: _TestDatabase) -> str:
-    return _test_database.admin_dsn
+async def _ensure_data(settings: Settings, admin_dsn: str) -> None:
+    fingerprint = _fingerprint(settings)
+    conn = await asyncpg.connect(admin_dsn)
+    try:
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS public.integration_fixture (fingerprint text NOT NULL)"
+        )
+        if await conn.fetchval("SELECT fingerprint FROM public.integration_fixture") != fingerprint:
+            await load_all(conn, BACKEND / settings.raw_data_dir)
+            await refresh_materialized_views(conn)
+            async with conn.transaction():
+                await conn.execute("DELETE FROM public.integration_fixture")
+                await conn.execute(
+                    "INSERT INTO public.integration_fixture VALUES ($1)", fingerprint
+                )
+        # Stand-in for a future app table created by a migration (i.e. owned by t2s_owner).
+        async with conn.transaction():
+            await conn.execute("SET LOCAL ROLE t2s_owner")
+            await conn.execute(
+                "CREATE TABLE IF NOT EXISTS app.privilege_probe"
+                " (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, note text)"
+            )
+    finally:
+        await conn.close()
 
 
-@pytest.fixture
-def reader_dsn(_test_database: _TestDatabase) -> str:
-    return _test_database.reader_dsn
+async def _prepare_shared(settings: Settings, maintenance_dsn: str, admin_dsn: str) -> None:
+    await _create_database(maintenance_dsn, SHARED_DB, replace=False)
+    try:
+        await _migrate_and_sync(settings, admin_dsn)
+    except MigrationError:
+        # An applied migration was edited during development: rebuild from scratch.
+        await _create_database(maintenance_dsn, SHARED_DB, replace=True)
+        await _migrate_and_sync(settings, admin_dsn)
+    await _ensure_data(settings, admin_dsn)
 
 
-@pytest.fixture
-def app_dsn(_test_database: _TestDatabase) -> str:
-    return _test_database.app_dsn
+def _role_dsns(settings: Settings, database: str) -> tuple[str, str, str]:
+    return (
+        _with_database(asyncpg_dsn(settings.database_url), database),
+        _with_database(asyncpg_dsn(settings.reader_database_url), database),
+        _with_database(asyncpg_dsn(settings.app_database_url), database),
+    )
 
 
-@pytest.fixture
-def load_reports(_test_database: _TestDatabase) -> list[dict[str, int]]:
-    return _test_database.load_reports
+@pytest.fixture(scope="session")
+def shared_db(real_settings: Settings) -> Database:
+    raw_dir = BACKEND / real_settings.raw_data_dir
+    if not all((raw_dir / spec.csv_file).exists() for spec in TABLES):
+        pytest.skip(f"Olist CSVs not found in {raw_dir}")
+    maintenance_dsn = _with_database(asyncpg_dsn(real_settings.database_url), "postgres")
+    admin_dsn, reader_dsn, app_dsn = _role_dsns(real_settings, SHARED_DB)
+    asyncio.run(_prepare_shared(real_settings, maintenance_dsn, admin_dsn))
+    return Database(admin_dsn, reader_dsn, app_dsn)
 
 
-@pytest.fixture
-def reapplied_migrations(_test_database: _TestDatabase) -> int:
-    return _test_database.reapplied_migrations
+async def _prepare_fresh(settings: Settings, maintenance_dsn: str, admin_dsn: str) -> int:
+    await _create_database(maintenance_dsn, FRESH_DB, replace=True)
+    conn = await asyncpg.connect(admin_dsn)
+    try:
+        # Installed BEFORE the migrations, so 0004's revoke loop has something to revoke.
+        await conn.execute("CREATE EXTENSION dblink SCHEMA public")
+    finally:
+        await conn.close()
+    await _migrate_and_sync(settings, admin_dsn)
+    return await _migrate_and_sync(settings, admin_dsn)
+
+
+@pytest.fixture(scope="session")
+def fresh_db(real_settings: Settings) -> Iterator[Database]:
+    maintenance_dsn = _with_database(asyncpg_dsn(real_settings.database_url), "postgres")
+    admin_dsn, reader_dsn, app_dsn = _role_dsns(real_settings, FRESH_DB)
+    reapplied = asyncio.run(_prepare_fresh(real_settings, maintenance_dsn, admin_dsn))
+    try:
+        yield Database(admin_dsn, reader_dsn, app_dsn, reapplied)
+    finally:
+        asyncio.run(_drop_database(maintenance_dsn, FRESH_DB))
+
+
+# ---------------------------------------------------------------- connections
+
+
+async def _session_connection(dsn: str) -> AsyncIterator[asyncpg.Connection]:
+    conn = await asyncpg.connect(dsn)
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+
+async def _rolled_back(conn: asyncpg.Connection) -> AsyncIterator[asyncpg.Connection]:
+    tx = conn.transaction()
+    await tx.start()
+    try:
+        yield conn
+    finally:
+        await tx.rollback()
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def _admin_conn(shared_db: Database) -> AsyncIterator[asyncpg.Connection]:
+    async for conn in _session_connection(shared_db.admin_dsn):
+        yield conn
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def _reader_conn(shared_db: Database) -> AsyncIterator[asyncpg.Connection]:
+    async for conn in _session_connection(shared_db.reader_dsn):
+        yield conn
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def _app_conn(shared_db: Database) -> AsyncIterator[asyncpg.Connection]:
+    async for conn in _session_connection(shared_db.app_dsn):
+        yield conn
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def admin(_admin_conn: asyncpg.Connection) -> AsyncIterator[asyncpg.Connection]:
+    """Admin on the shared database, inside a transaction rolled back after the test."""
+    async for conn in _rolled_back(_admin_conn):
+        yield conn
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def reader(_reader_conn: asyncpg.Connection) -> AsyncIterator[asyncpg.Connection]:
+    """Logged in as t2s_reader, inside a transaction rolled back after the test.
+
+    The transaction is started but no statement has run yet, so a test may still issue
+    ``SET TRANSACTION READ WRITE`` as its first statement.
+    """
+    async for conn in _rolled_back(_reader_conn):
+        yield conn
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def app(_app_conn: asyncpg.Connection) -> AsyncIterator[asyncpg.Connection]:
+    """Logged in as t2s_app, inside a transaction rolled back after the test."""
+    async for conn in _rolled_back(_app_conn):
+        yield conn

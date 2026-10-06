@@ -62,7 +62,7 @@ make down        # stop services (`make down-volumes` also wipes data)
   column must get one too (an integration test enforces it).
 - Raw CSVs go in `backend/data/raw/` (git-ignored, never committed). `make load-data` migrates,
   then truncates and reloads `shop` in one transaction (idempotent).
-- Integration tests (`make test-integration`) build and drop their own `text2sql_test` database.
+- Integration tests (`make test-integration`): see "Integration tests" below.
 
 ## Database roles (migration 0004)
 
@@ -80,6 +80,40 @@ make down        # stop services (`make down-volumes` also wipes data)
   change (`SET`, `BEGIN READ WRITE`, `ALTER ROLE … SET`). Privileges are the real wall; the
   executor must still run each query in its own `READ ONLY` transaction with `SET LOCAL`
   limits, and the guard must reject anything but a single read-only statement.
+- Unique / repeat customers are counted with `shop.customer_person.person_key` (materialized
+  view, opaque dense_rank of the restricted `customer_unique_id`). Refresh materialized views
+  after every data load: `make refresh-views` (`make load-data` does it automatically).
+
+## Integration tests
+
+`make test-integration` (marker `integration`; plain `make test` skips them):
+
+- A session fixture runs `docker compose up --wait` once; no need to `make up` first.
+- `text2sql_test` is a **persistent** shared database: migrated every session, reloaded only
+  when the CSVs, loader code or migrations change (fingerprint), rebuilt automatically if an
+  applied migration was edited. Safe to drop at any time; it is recreated.
+- Use the `admin` / `reader` / `app` fixtures: session-long connections (logged in as the real
+  roles) wrapped in a per-test transaction that is **always rolled back**. Never commit from a
+  test on the shared database. Use `tests.integration.support.expect_failure` for statements
+  that must fail (it uses a savepoint, so the test transaction survives).
+- Only role-bootstrap tests (`test_role_bootstrap.py`) use `fresh_db`, a data-less database
+  created and dropped per session.
+- Use `127.0.0.1`, not `localhost`, in connection URLs: on Windows `localhost` tries IPv6
+  first and costs ~2 s per connection.
+
+## Generated SQL rules (binding for the future components)
+
+- **Generated SQL must never use `SELECT *`** (nor `t.*`). Always name columns: personal-data
+  columns are not readable by `t2s_reader`, so a star over `shop.customers` or `shop.sellers`
+  fails at runtime, and a star elsewhere silently widens the result as the schema grows.
+- **SQL validator (prompt 10)** must reject `*` or `tbl.*` in a select list over any relation
+  that has columns `t2s_reader` cannot read, before the query reaches the database. `count(*)`
+  is not a projection and is fine.
+- **Schema catalog (prompt 7)** must include views and materialized views (e.g.
+  `shop.customer_person`), not only tables, and must list **only the columns `t2s_reader` can
+  actually read** — derive this from the database (`has_column_privilege('t2s_reader', …,
+  'SELECT')`), never from a hard-coded list, so a new grant/revoke is picked up automatically.
+  Restricted columns must not appear in prompts at all.
 
 Local service credentials (`POSTGRES_*`, `REDIS_*`) live in `backend/.env` and must match
 `DATABASE_URL` / `REDIS_URL`. SQL files in `backend/db/init/` run once, on an empty volume.

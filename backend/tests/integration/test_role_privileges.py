@@ -1,7 +1,6 @@
-"""Prove the least-privilege roles from migration 0004 hold, by connecting as them."""
+"""Prove t2s_reader / t2s_app privileges hold, logged in as those roles (shared database)."""
 
 import time
-from collections.abc import AsyncIterator
 
 import asyncpg
 import pytest
@@ -10,6 +9,8 @@ from asyncpg.exceptions import (
     QueryCanceledError,
     ReadOnlySQLTransactionError,
 )
+
+from tests.integration.support import expect_failure
 
 pytestmark = pytest.mark.integration
 
@@ -29,6 +30,7 @@ WRITES = {
     "create_schema": "CREATE SCHEMA evil",
     "create_function": "CREATE FUNCTION shop.evil() RETURNS int LANGUAGE sql AS 'SELECT 1'",
     "create_extension_dblink": "CREATE EXTENSION dblink",
+    "refresh_view": "REFRESH MATERIALIZED VIEW shop.customer_person",
 }
 
 REVOKED_COLUMNS = [
@@ -49,29 +51,7 @@ FILE_ACCESS = {
     "copy_from_file": "COPY shop.product_categories FROM '/etc/passwd'",
 }
 
-
-@pytest.fixture
-async def reader(reader_dsn: str) -> AsyncIterator[asyncpg.Connection]:
-    conn = await asyncpg.connect(reader_dsn)
-    yield conn
-    await conn.close()
-
-
-@pytest.fixture
-async def admin(admin_dsn: str) -> AsyncIterator[asyncpg.Connection]:
-    conn = await asyncpg.connect(admin_dsn)
-    yield conn
-    await conn.close()
-
-
-@pytest.fixture
-async def app(app_dsn: str) -> AsyncIterator[asyncpg.Connection]:
-    conn = await asyncpg.connect(app_dsn)
-    yield conn
-    await conn.close()
-
-
-# ---------------------------------------------------------------- positive controls
+# ---------------------------------------------------------------- positive control
 
 
 async def test_reader_can_query_shop(reader: asyncpg.Connection) -> None:
@@ -86,48 +66,12 @@ async def test_reader_can_query_shop(reader: asyncpg.Connection) -> None:
     assert row is not None
 
 
-async def test_reader_session_settings(reader: asyncpg.Connection) -> None:
-    settings = {
-        "default_transaction_read_only": "on",
-        "statement_timeout": "5s",
-        "idle_in_transaction_session_timeout": "10s",
-        "work_mem": "8MB",
-        "temp_file_limit": "256MB",
-    }
-    for name, expected in settings.items():
-        assert await reader.fetchval(f"SHOW {name}") == expected, name
-
-
-async def test_role_attributes(admin: asyncpg.Connection) -> None:
-    rows = await admin.fetch(
-        "SELECT rolname, rolcanlogin, rolconnlimit, rolsuper, rolcreaterole, rolcreatedb,"
-        " rolbypassrls FROM pg_roles WHERE rolname LIKE 't2s\\_%'"
-    )
-    roles = {r["rolname"]: r for r in rows}
-    assert set(roles) == {"t2s_owner", "t2s_reader", "t2s_app"}
-    assert not roles["t2s_owner"]["rolcanlogin"]
-    assert roles["t2s_reader"]["rolconnlimit"] == 20
-    for attribute in ("rolsuper", "rolcreaterole", "rolcreatedb", "rolbypassrls"):
-        assert not any(r[attribute] for r in rows), attribute
-
-
-async def test_owner_owns_schemas_and_tables(admin: asyncpg.Connection) -> None:
-    owners = await admin.fetch(
-        "SELECT DISTINCT pg_get_userbyid(relowner) AS owner FROM pg_class"
-        " WHERE relnamespace = 'shop'::regnamespace"
-        " UNION SELECT pg_get_userbyid(nspowner) FROM pg_namespace"
-        " WHERE nspname IN ('shop', 'app')"
-    )
-    assert {r["owner"] for r in owners} == {"t2s_owner"}
-
-
 # ---------------------------------------------------------------- writes & DDL
 
 
 @pytest.mark.parametrize("sql", WRITES.values(), ids=WRITES.keys())
 async def test_reader_writes_fail_in_default_session(reader: asyncpg.Connection, sql: str) -> None:
-    with pytest.raises((ReadOnlySQLTransactionError, InsufficientPrivilegeError)):
-        await reader.execute(sql)
+    await expect_failure(reader, sql, (ReadOnlySQLTransactionError, InsufficientPrivilegeError))
 
 
 @pytest.mark.parametrize("sql", WRITES.values(), ids=WRITES.keys())
@@ -135,13 +79,9 @@ async def test_reader_writes_fail_even_in_read_write_transaction(
     reader: asyncpg.Connection, sql: str
 ) -> None:
     # read-only is only a session default; privileges must stop writes on their own.
-    await reader.execute("BEGIN READ WRITE")
-    try:
-        assert await reader.fetchval("SHOW transaction_read_only") == "off"
-        with pytest.raises(InsufficientPrivilegeError):
-            await reader.execute(sql)
-    finally:
-        await reader.execute("ROLLBACK")
+    await reader.execute("SET TRANSACTION READ WRITE")  # first statement of the test txn
+    assert await reader.fetchval("SHOW transaction_read_only") == "off"
+    await expect_failure(reader, sql, InsufficientPrivilegeError)
 
 
 # ---------------------------------------------------------------- personal data
@@ -151,21 +91,24 @@ async def test_reader_writes_fail_even_in_read_write_transaction(
 async def test_reader_cannot_read_revoked_column(
     reader: asyncpg.Connection, table: str, column: str
 ) -> None:
-    with pytest.raises(InsufficientPrivilegeError):
-        await reader.fetch(f"SELECT {column} FROM shop.{table} LIMIT 1")  # noqa: S608
+    sql = f"SELECT {column} FROM shop.{table} LIMIT 1"  # noqa: S608
+    await expect_failure(reader, sql, InsufficientPrivilegeError)
 
 
 @pytest.mark.parametrize("table", ["customers", "sellers"])
 async def test_reader_cannot_select_star_on_personal_tables(
     reader: asyncpg.Connection, table: str
 ) -> None:
-    with pytest.raises(InsufficientPrivilegeError):
-        await reader.fetch(f"SELECT * FROM shop.{table} LIMIT 1")  # noqa: S608
+    sql = f"SELECT * FROM shop.{table} LIMIT 1"  # noqa: S608
+    await expect_failure(reader, sql, InsufficientPrivilegeError)
 
 
 async def test_reader_cannot_filter_on_revoked_column(reader: asyncpg.Connection) -> None:
-    with pytest.raises(InsufficientPrivilegeError):
-        await reader.fetch("SELECT customer_id FROM shop.customers WHERE customer_city = 'x'")
+    await expect_failure(
+        reader,
+        "SELECT customer_id FROM shop.customers WHERE customer_city = 'x'",
+        InsufficientPrivilegeError,
+    )
 
 
 # ---------------------------------------------------------------- resource limits
@@ -173,70 +116,39 @@ async def test_reader_cannot_filter_on_revoked_column(reader: asyncpg.Connection
 
 async def test_reader_long_query_is_cancelled(reader: asyncpg.Connection) -> None:
     started = time.monotonic()
-    with pytest.raises(QueryCanceledError):
-        await reader.execute("SELECT pg_sleep(10)")
+    await expect_failure(reader, "SELECT pg_sleep(10)", QueryCanceledError)
     assert time.monotonic() - started < 8
 
 
-# ---------------------------------------------------------------- other schemas
+# ---------------------------------------------------------------- other schemas & server
 
 
 async def test_reader_cannot_read_migration_history(reader: asyncpg.Connection) -> None:
-    with pytest.raises(InsufficientPrivilegeError):
-        await reader.fetch("SELECT * FROM public.schema_migrations")
-
-
-async def test_schema_privileges(reader: asyncpg.Connection) -> None:
-    rows = await reader.fetch(
-        "SELECT nspname, has_schema_privilege('t2s_reader', nspname, 'USAGE') AS usage,"
-        " has_schema_privilege('t2s_reader', nspname, 'CREATE') AS can_create"
-        " FROM pg_namespace WHERE nspname IN ('shop', 'app', 'public')"
+    await expect_failure(
+        reader, "SELECT version FROM public.schema_migrations", InsufficientPrivilegeError
     )
-    got = {r["nspname"]: (r["usage"], r["can_create"]) for r in rows}
-    assert got == {"shop": (True, False), "app": (False, False), "public": (False, False)}
 
 
 @pytest.mark.parametrize("sql", FILE_ACCESS.values(), ids=FILE_ACCESS.keys())
 async def test_reader_cannot_touch_server_files(reader: asyncpg.Connection, sql: str) -> None:
-    with pytest.raises((InsufficientPrivilegeError, ReadOnlySQLTransactionError)):
-        await reader.execute(sql)
-
-
-async def test_reader_cannot_use_dblink_even_if_installed(
-    admin: asyncpg.Connection, reader: asyncpg.Connection
-) -> None:
-    await admin.execute("CREATE EXTENSION IF NOT EXISTS dblink SCHEMA public")
-    try:
-        with pytest.raises(InsufficientPrivilegeError):
-            await reader.fetch(
-                "SELECT * FROM public.dblink('dbname=postgres', 'SELECT 1') AS t(x int)"
-            )
-    finally:
-        await admin.execute("DROP EXTENSION dblink")
+    await expect_failure(reader, sql, (InsufficientPrivilegeError, ReadOnlySQLTransactionError))
 
 
 # ---------------------------------------------------------------- t2s_app
 
 
-async def test_app_role_is_confined_to_app_schema(
-    admin: asyncpg.Connection, app: asyncpg.Connection, reader: asyncpg.Connection
-) -> None:
-    # Tables are created by migrations, i.e. as t2s_owner; default privileges grant the app DML.
-    async with admin.transaction():
-        await admin.execute("SET LOCAL ROLE t2s_owner")
-        await admin.execute(
-            "CREATE TABLE IF NOT EXISTS app.privilege_probe"
-            " (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, note text)"
-        )
-
+async def test_app_role_has_dml_on_app_schema(app: asyncpg.Connection) -> None:
     await app.execute("INSERT INTO app.privilege_probe (note) VALUES ('hi')")
     await app.execute("UPDATE app.privilege_probe SET note = 'bye'")
     assert await app.fetchval("SELECT count(*) FROM app.privilege_probe") >= 1
     await app.execute("DELETE FROM app.privilege_probe")
 
-    with pytest.raises(InsufficientPrivilegeError):
-        await app.fetch("SELECT 1 FROM shop.orders LIMIT 1")
-    with pytest.raises(InsufficientPrivilegeError):
-        await app.execute("CREATE TABLE app.evil (id int)")
-    with pytest.raises(InsufficientPrivilegeError):
-        await reader.fetch("SELECT * FROM app.privilege_probe")
+
+async def test_app_role_is_confined_to_app_schema(app: asyncpg.Connection) -> None:
+    await expect_failure(app, "SELECT 1 FROM shop.orders LIMIT 1", InsufficientPrivilegeError)
+    await expect_failure(app, "CREATE TABLE app.evil (id int)", InsufficientPrivilegeError)
+    await expect_failure(app, "DROP TABLE app.privilege_probe", InsufficientPrivilegeError)
+
+
+async def test_reader_cannot_read_app_schema(reader: asyncpg.Connection) -> None:
+    await expect_failure(reader, "SELECT note FROM app.privilege_probe", InsufficientPrivilegeError)

@@ -1,13 +1,16 @@
-"""Database CLI: ``python -m text2sql.db {migrate,load-olist}`` (run from ``backend/``)."""
+"""Database CLI: ``python -m text2sql.db <command>``, run from ``backend/``."""
 
 import argparse
 import asyncio
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from text2sql.config.settings import Settings, get_settings
 from text2sql.db.connection import connect
 from text2sql.db.migrations import migrate
 from text2sql.db.olist.loader import load_all
 from text2sql.db.roles import APP_ROLE, READER_ROLE, sync_login_passwords
+from text2sql.db.views import refresh_materialized_views
 from text2sql.observability.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
@@ -34,16 +37,30 @@ async def _load_olist(settings: Settings) -> None:
     log.info("olist_loaded", total_rows=sum(counts.values()), **counts)
 
 
+async def _refresh_views(settings: Settings) -> None:
+    conn = await connect(settings.database_url)
+    try:
+        await refresh_materialized_views(conn)
+    finally:
+        await conn.close()
+
+
+COMMANDS: dict[str, Callable[[Settings], Coroutine[Any, Any, None]]] = {
+    "migrate": _migrate,
+    "load-olist": _load_olist,
+    "refresh-views": _refresh_views,
+}
+
+
 def main() -> None:
     """Parse arguments and run the chosen command."""
     parser = argparse.ArgumentParser(prog="python -m text2sql.db")
-    parser.add_argument("command", choices=["migrate", "load-olist"])
+    parser.add_argument("command", choices=sorted(COMMANDS))
     args = parser.parse_args()
 
     settings = get_settings()
     configure_logging(settings.log_level, json=settings.app_env != "development")
-    command = _migrate if args.command == "migrate" else _load_olist
-    asyncio.run(command(settings))
+    asyncio.run(COMMANDS[args.command](settings))
 
 
 if __name__ == "__main__":

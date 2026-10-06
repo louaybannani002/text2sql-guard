@@ -4,13 +4,14 @@ Every parser maps empty / whitespace-only strings to ``None``; NOT NULL columns 
 database reject missing required values loudly instead of silently loading junk.
 """
 
+import re
 from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 type Parser = Callable[[str], object]
 
-_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+_TIMESTAMP_SHAPE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
 
 
 def text(raw: str) -> str | None:
@@ -48,7 +49,14 @@ def floating(raw: str) -> float | None:
 def timestamp(raw: str) -> datetime | None:
     """Naive timestamp in ``YYYY-MM-DD HH:MM:SS`` (source data is local Brazilian time)."""
     value = raw.strip()
-    return datetime.strptime(value, _TIMESTAMP_FORMAT) if value else None  # noqa: DTZ007
+    if not value:
+        return None
+    # fromisoformat is ~10x faster than strptime but lenient (dates, offsets, 'T'), so the
+    # exact shape is checked first.
+    if not _TIMESTAMP_SHAPE.fullmatch(value):
+        msg = f"time data {value!r} does not match format 'YYYY-MM-DD HH:MM:SS'"
+        raise ValueError(msg)
+    return datetime.fromisoformat(value)
 
 
 def date_only(raw: str) -> date | None:

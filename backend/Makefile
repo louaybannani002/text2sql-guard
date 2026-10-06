@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test test-integration run check up down down-volumes psql migrate load-data
+.PHONY: help install lint format typecheck test test-integration run check up down down-volumes psql migrate load-data refresh-views
 
 COMPOSE := docker compose -f ../docker-compose.yml --env-file .env
 
@@ -46,5 +46,9 @@ psql: ## Open a psql shell in the postgres container
 migrate: ## Apply pending SQL migrations from db/migrations/
 	uv run python -m text2sql.db migrate
 
-load-data: migrate ## (Re)load the Olist CSVs from data/raw/ into the shop schema
+load-data: migrate ## (Re)load the Olist CSVs from data/raw/ into shop, then refresh views
 	uv run python -m text2sql.db load-olist
+	$(MAKE) refresh-views
+
+refresh-views: ## Refresh materialized views in shop (run after any data load)
+	uv run python -m text2sql.db refresh-views

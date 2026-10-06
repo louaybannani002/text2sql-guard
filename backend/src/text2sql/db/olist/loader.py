@@ -60,6 +60,16 @@ async def load_all(conn: asyncpg.Connection, raw_dir: Path) -> dict[str, int]:
     tables = ", ".join(f"{SCHEMA}.{spec.table}" for spec in TABLES)
     async with conn.transaction():
         await set_local_role(conn, OWNER_ROLE)  # data is written by the schema owner
+        # Bulk-load pattern: per-row FK triggers dominate COPY time, so drop the foreign keys
+        # and re-add them afterwards; re-adding validates every row in one pass per FK. All in
+        # this transaction, so an orphan row aborts the whole load.
+        # Secondary indexes likewise: one sort per index beats maintaining it row by row.
+        drops, adds = await _foreign_key_statements(conn)
+        index_drops, index_creates = await _secondary_index_statements(conn)
+        drops += index_drops
+        adds = index_creates + adds  # indexes first: they speed up FK validation
+        for statement in drops:
+            await conn.execute(statement)
         await conn.execute(f"TRUNCATE {tables} RESTART IDENTITY")
         for spec in TABLES:
             records = build_records(raw_dir, spec)
@@ -67,7 +77,47 @@ async def load_all(conn: asyncpg.Connection, raw_dir: Path) -> dict[str, int]:
                 spec.table, schema_name=SCHEMA, columns=spec.column_names, records=records
             )
             log.info("table_loaded", table=f"{SCHEMA}.{spec.table}", rows=len(records))
+        for statement in adds:
+            await conn.execute(statement)
     return await row_counts(conn)
+
+
+async def _foreign_key_statements(conn: asyncpg.Connection) -> tuple[list[str], list[str]]:
+    """``ALTER TABLE`` statements that drop and re-create every foreign key in the schema."""
+    rows = await conn.fetch(
+        """
+        SELECT format('ALTER TABLE %I.%I DROP CONSTRAINT %I', n.nspname, t.relname, c.conname)
+                   AS drop_sql,
+               format('ALTER TABLE %I.%I ADD CONSTRAINT %I %s', n.nspname, t.relname,
+                      c.conname, pg_get_constraintdef(c.oid)) AS add_sql
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.contype = 'f' AND n.nspname = $1
+        ORDER BY c.conname
+        """,
+        SCHEMA,
+    )
+    return [r["drop_sql"] for r in rows], [r["add_sql"] for r in rows]
+
+
+async def _secondary_index_statements(conn: asyncpg.Connection) -> tuple[list[str], list[str]]:
+    """Drop/create statements for table indexes that do not back a PK/UNIQUE constraint."""
+    rows = await conn.fetch(
+        """
+        SELECT format('DROP INDEX %I.%I', n.nspname, i.relname) AS drop_sql,
+               pg_get_indexdef(i.oid) AS create_sql
+        FROM pg_index x
+        JOIN pg_class i ON i.oid = x.indexrelid
+        JOIN pg_class t ON t.oid = x.indrelid AND t.relkind = 'r'
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = $1
+          AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.oid)
+        ORDER BY i.relname
+        """,
+        SCHEMA,
+    )
+    return [r["drop_sql"] for r in rows], [r["create_sql"] for r in rows]
 
 
 async def row_counts(conn: asyncpg.Connection) -> dict[str, int]:
