@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     app_database_url: SecretStr  # t2s_app: read/write on schema app
     migrations_dir: Path = Path("db/migrations")
     raw_data_dir: Path = Path("data/raw")
+    examples_seed_path: Path = Path("db/seeds/examples.toml")
 
     # Cache (secret: contains the password)
     redis_url: SecretStr
@@ -48,6 +49,7 @@ class Settings(BaseSettings):
     llm_model_main: str
     llm_model_fast: str
     llm_model_local: str
+    llm_embedding_model: str  # its dimension must match app.*.embedding (1536)
     llm_local_api_base: str | None = None  # e.g. http://127.0.0.1:11434 for Ollama
     llm_timeout_s: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0, le=5)

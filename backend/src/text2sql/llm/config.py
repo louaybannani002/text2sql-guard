@@ -6,7 +6,7 @@ from pydantic import SecretStr
 
 from text2sql.config.settings import Settings
 from text2sql.llm._litellm import litellm
-from text2sql.llm.types import ModelRole
+from text2sql.llm.types import ModelRole, UsageRole
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +32,7 @@ class LLMConfig:
     """Resolved LLM settings. Build it with ``from_settings``; tests construct it directly."""
 
     models: dict[ModelRole, str]
+    embedding_model: str = "openai/text-embedding-3-small"
     timeout_s: float = 30.0
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     openai_api_key: SecretStr | None = None
@@ -46,15 +47,16 @@ class LLMConfig:
                 "fast": settings.llm_model_fast,
                 "local": settings.llm_model_local,
             },
+            embedding_model=settings.llm_embedding_model,
             timeout_s=settings.llm_timeout_s,
             retry=RetryPolicy(max_retries=settings.llm_max_retries),
             openai_api_key=settings.openai_api_key,
             local_api_base=settings.llm_local_api_base,
         )
 
-    def target(self, role: ModelRole) -> ModelTarget:
-        """Resolve a role to its model and credentials."""
-        model = self.models[role]
+    def target(self, role: UsageRole) -> ModelTarget:
+        """Resolve a role (or ``"embedding"``) to its model and credentials."""
+        model = self.embedding_model if role == "embedding" else self.models[role]
         try:
             provider = litellm.get_llm_provider(model)[1]
         except Exception:  # noqa: BLE001 - unknown provider: let LiteLLM report it on call

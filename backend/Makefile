@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test test-integration run check up down down-volumes psql migrate load-data refresh-views
+.PHONY: help install lint format typecheck test test-integration run check up down down-volumes psql migrate load-data refresh-views catalog
 
 COMPOSE := docker compose -f ../docker-compose.yml --env-file .env
 
@@ -52,3 +52,6 @@ load-data: migrate ## (Re)load the Olist CSVs from data/raw/ into shop, then ref
 
 refresh-views: ## Refresh materialized views in shop (run after any data load)
 	uv run python -m text2sql.db refresh-views
+
+catalog: migrate ## Rebuild the retrieval catalog; re-embeds only what changed (FORCE=1: everything)
+	uv run python -m text2sql.db $(if $(FORCE),catalog-force,catalog)

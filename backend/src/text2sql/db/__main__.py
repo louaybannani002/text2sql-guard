@@ -11,7 +11,11 @@ from text2sql.db.migrations import migrate
 from text2sql.db.olist.loader import load_all
 from text2sql.db.roles import APP_ROLE, READER_ROLE, sync_login_passwords
 from text2sql.db.views import refresh_materialized_views
+from text2sql.llm import LLMConfig
+from text2sql.llm.embeddings import embed_texts
 from text2sql.observability.logging import configure_logging, get_logger
+from text2sql.retrieval.build import build_catalog
+from text2sql.retrieval.examples import load_examples
 
 log = get_logger(__name__)
 
@@ -45,10 +49,28 @@ async def _refresh_views(settings: Settings) -> None:
         await conn.close()
 
 
+async def _catalog(settings: Settings, *, force: bool) -> None:
+    config = LLMConfig.from_settings(settings)
+    examples = load_examples(settings.examples_seed_path)
+    conn = await connect(settings.database_url)
+    try:
+        await build_catalog(
+            conn,
+            examples=examples,
+            embed=lambda texts: embed_texts(texts, config=config),
+            embedding_model=config.embedding_model,
+            force=force,
+        )
+    finally:
+        await conn.close()
+
+
 COMMANDS: dict[str, Callable[[Settings], Coroutine[Any, Any, None]]] = {
     "migrate": _migrate,
     "load-olist": _load_olist,
     "refresh-views": _refresh_views,
+    "catalog": lambda settings: _catalog(settings, force=False),
+    "catalog-force": lambda settings: _catalog(settings, force=True),
 }
 
 

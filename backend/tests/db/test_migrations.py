@@ -78,5 +78,7 @@ def test_without_bootstrap_nothing_runs_as_owner() -> None:
     assert not any(runs_as_owner(m, migrations) for m in migrations)
 
 
-def test_only_the_role_bootstrap_runs_as_admin() -> None:
-    assert [m.version for m in discover(REPO_MIGRATIONS) if m.runs_as_admin] == [4]
+def test_admin_migrations_are_an_explicit_allowlist() -> None:
+    # Superuser migrations are rare and reviewed: 0004 creates roles, 0007 installs pgvector.
+    # Adding one must be a deliberate change to this list.
+    assert [m.version for m in discover(REPO_MIGRATIONS) if m.runs_as_admin] == [4, 7]

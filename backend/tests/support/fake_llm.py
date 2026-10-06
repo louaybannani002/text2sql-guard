@@ -19,6 +19,7 @@ def llm_config(**overrides: Any) -> LLMConfig:  # noqa: ANN401
             "fast": "openai/gpt-5.4-mini",
             "local": "ollama_chat/qwen2.5-coder:7b",
         },
+        "embedding_model": "openai/text-embedding-3-small",
         "timeout_s": 5.0,
         "retry": RetryPolicy(max_retries=2, base_delay_s=0.0),
         "openai_api_key": SecretStr("sk-test-not-a-real-key"),

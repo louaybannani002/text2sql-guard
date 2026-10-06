@@ -22,6 +22,7 @@ import pytest_asyncio
 
 import text2sql.db.olist
 from tests.integration.support import Database
+from tests.support.fake_embedder import FAKE_EMBEDDING_MODEL, FakeEmbedder
 from text2sql.config.settings import Settings
 from text2sql.db.connection import asyncpg_dsn
 from text2sql.db.migrations import MigrationError, discover, migrate
@@ -29,6 +30,8 @@ from text2sql.db.olist.loader import load_all
 from text2sql.db.olist.tables import TABLES
 from text2sql.db.roles import APP_ROLE, READER_ROLE, sync_login_passwords
 from text2sql.db.views import refresh_materialized_views
+from text2sql.retrieval.build import build_catalog
+from text2sql.retrieval.examples import load_examples
 
 BACKEND = Path(__file__).parents[2]
 SHARED_DB = "text2sql_test"
@@ -133,6 +136,20 @@ async def _ensure_data(settings: Settings, admin_dsn: str) -> None:
         await conn.close()
 
 
+async def _ensure_catalog(settings: Settings, admin_dsn: str) -> None:
+    """Committed catalog with deterministic fake embeddings; incremental, so cheap when warm."""
+    conn = await asyncpg.connect(admin_dsn)
+    try:
+        await build_catalog(
+            conn,
+            examples=load_examples(BACKEND / settings.examples_seed_path),
+            embed=FakeEmbedder(),
+            embedding_model=FAKE_EMBEDDING_MODEL,
+        )
+    finally:
+        await conn.close()
+
+
 async def _prepare_shared(settings: Settings, maintenance_dsn: str, admin_dsn: str) -> None:
     await _create_database(maintenance_dsn, SHARED_DB, replace=False)
     try:
@@ -142,6 +159,7 @@ async def _prepare_shared(settings: Settings, maintenance_dsn: str, admin_dsn: s
         await _create_database(maintenance_dsn, SHARED_DB, replace=True)
         await _migrate_and_sync(settings, admin_dsn)
     await _ensure_data(settings, admin_dsn)
+    await _ensure_catalog(settings, admin_dsn)
 
 
 def _role_dsns(settings: Settings, database: str) -> tuple[str, str, str]:

@@ -3,13 +3,13 @@
 from collections.abc import Sequence
 from typing import Any
 
-from text2sql.llm.types import ModelRole, Usage
+from text2sql.llm.types import Usage, UsageRole
 
 
 class LLMError(Exception):
     """Base class for every failure of an LLM call."""
 
-    def __init__(self, message: str, *, role: ModelRole, model: str) -> None:
+    def __init__(self, message: str, *, role: UsageRole, model: str) -> None:
         """Record which role and concrete model failed."""
         super().__init__(message)
         self.role = role
@@ -27,7 +27,7 @@ class LLMProviderError(LLMError):
         self,
         message: str,
         *,
-        role: ModelRole,
+        role: UsageRole,
         model: str,
         attempts: int,
         status_code: int | None,
@@ -49,7 +49,7 @@ class LLMOutputValidationError(LLMError):
         self,
         message: str,
         *,
-        role: ModelRole,
+        role: UsageRole,
         model: str,
         raw_output: str,
         errors: Sequence[Any],

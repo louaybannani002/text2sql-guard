@@ -100,6 +100,20 @@ make down        # stop services (`make down-volumes` also wipes data)
   reviewable diff and old runs stay reproducible. User input goes only into the user template,
   inside tags (`<question>`), never into the system prompt.
 
+## Retrieval catalog (`make catalog`)
+
+- `text2sql.retrieval.build_catalog` introspects `shop` as `t2s_owner` and writes one document
+  per relation (tables, views, materialized views) to `app.schema_docs`, with a pgvector
+  embedding (HNSW) and a tsvector (GIN). Documents list only columns `t2s_reader` can read;
+  free-text customer columns (`NO_EXAMPLE_VALUES` in `retrieval/catalog.py`) get no sample values.
+- Few-shot examples live in `backend/db/seeds/examples.toml` (source of truth, human-reviewed)
+  and are synced to `app.examples`. Tests parse every example, check the generation rules
+  statically, and execute it as `t2s_reader` — a broken example fails the build.
+- `schema_version` = hash of all documents. Embeddings are recomputed only for documents or
+  examples whose content (or the embedding model) changed; `make catalog FORCE=1` re-embeds all.
+  Run `make catalog` after any migration that changes `shop` or its comments.
+- The embedding model must produce 1536-dimension vectors (`vector(1536)` in migration 0008).
+
 ## Integration tests
 
 `make test-integration` (marker `integration`; plain `make test` skips them):

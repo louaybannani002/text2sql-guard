@@ -17,6 +17,7 @@ FAKE_ENV = {
     "LLM_MODEL_MAIN": "openai/gpt-5.4",
     "LLM_MODEL_FAST": "openai/gpt-5.4-mini",
     "LLM_MODEL_LOCAL": "ollama_chat/qwen2.5-coder:7b",
+    "LLM_EMBEDDING_MODEL": "openai/text-embedding-3-small",
     "LANGFUSE_PUBLIC_KEY": "pk-lf-test",
     "LANGFUSE_SECRET_KEY": "sk-lf-test",
     "LANGFUSE_HOST": "https://langfuse.example.com",

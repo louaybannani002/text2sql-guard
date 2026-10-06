@@ -1,6 +1,5 @@
 """``generate_structured``: one LLM call returning a validated Pydantic object and its usage."""
 
-import asyncio
 import re
 import time
 from collections.abc import Sequence
@@ -9,10 +8,10 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from text2sql.config.settings import get_settings
-from text2sql.llm._litellm import Timeout, litellm
+from text2sql.llm._litellm import litellm
+from text2sql.llm.calls import call_with_retries
 from text2sql.llm.config import LLMConfig, ModelTarget
-from text2sql.llm.errors import LLMOutputValidationError, LLMProviderError, LLMTimeoutError
-from text2sql.llm.retry import backoff_delay, is_retryable, status_code
+from text2sql.llm.errors import LLMOutputValidationError
 from text2sql.llm.types import LLMResult, Message, ModelRole, Usage
 from text2sql.observability.logging import get_logger
 
@@ -60,54 +59,21 @@ async def _complete_with_retries(
     target: ModelTarget,
     config: LLMConfig,
 ) -> tuple[Any, int]:
-    max_attempts = config.retry.max_retries + 1
-    for attempt in range(1, max_attempts + 1):
-        try:
-            async with asyncio.timeout(config.timeout_s):
-                response = await litellm.acompletion(
-                    model=target.model,
-                    messages=list(messages),
-                    response_format=response_model,
-                    timeout=config.timeout_s,
-                    api_key=target.api_key.get_secret_value() if target.api_key else None,
-                    api_base=target.api_base,
-                    num_retries=0,  # retries are ours: exact count, our backoff, our logs
-                    max_retries=0,  # ...and the OpenAI SDK must not retry underneath us
-                )
-        except (TimeoutError, Timeout) as exc:
-            log.warning("llm_timeout", role=role, model=target.model, attempt=attempt)
-            msg = f"{target.model} did not answer within {config.timeout_s}s"
-            raise LLMTimeoutError(msg, role=role, model=target.model) from exc
-        except Exception as exc:
-            code = status_code(exc)
-            if not is_retryable(exc) or attempt == max_attempts:
-                log.warning(
-                    "llm_call_failed",
-                    role=role,
-                    model=target.model,
-                    attempts=attempt,
-                    error=type(exc).__name__,
-                    status_code=code,
-                )
-                msg = f"{target.model} failed after {attempt} attempt(s): {type(exc).__name__}"
-                raise LLMProviderError(
-                    msg, role=role, model=target.model, attempts=attempt, status_code=code
-                ) from exc
-            delay = backoff_delay(attempt, config.retry)
-            log.warning(
-                "llm_retry",
-                role=role,
-                model=target.model,
-                attempt=attempt,
-                delay_s=round(delay, 3),
-                error=type(exc).__name__,
-                status_code=code,
-            )
-            await asyncio.sleep(delay)
-        else:
-            return response, attempt
-    unreachable = "retry loop exited without returning or raising"
-    raise AssertionError(unreachable)  # pragma: no cover
+    return await call_with_retries(
+        lambda: litellm.acompletion(
+            model=target.model,
+            messages=list(messages),
+            response_format=response_model,
+            timeout=config.timeout_s,
+            api_key=target.api_key.get_secret_value() if target.api_key else None,
+            api_base=target.api_base,
+            num_retries=0,  # retries are ours: exact count, our backoff, our logs
+            max_retries=0,  # ...and the OpenAI SDK must not retry underneath us
+        ),
+        role=role,
+        model=target.model,
+        config=config,
+    )
 
 
 def _usage(response: Any, role: ModelRole, model: str, started: float, attempts: int) -> Usage:  # noqa: ANN401

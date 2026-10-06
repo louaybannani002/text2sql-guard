@@ -1,0 +1,297 @@
+# Few-shot examples for SQL generation. Loaded into app.examples by `make catalog`.
+#
+# Status: DRAFT, awaiting human review. Each pair must follow the generation rules in
+# CLAUDE.md: PostgreSQL 16, one SELECT (CTEs allowed), no SELECT * / t.*, schema-qualified
+# tables with aliases, every column qualified, explicit JOINs, shop.customer_person for people.
+# Tests parse every query and run it as t2s_reader, so a broken edit fails the build.
+#
+# Business conventions used below (change them here if the business defines them otherwise):
+# - Revenue = SUM(order_items.price), excluding freight, over delivered orders.
+# - Late = delivered (date) after order_estimated_delivery_date.
+# - Order date = order_purchase_timestamp.
+
+[[example]]
+id = "orders_per_month"
+question = "How many orders were placed each month in 2017?"
+sql = """
+SELECT date_trunc('month', o.order_purchase_timestamp)::date AS month,
+       count(*) AS orders
+FROM shop.orders AS o
+WHERE o.order_purchase_timestamp >= DATE '2017-01-01'
+  AND o.order_purchase_timestamp < DATE '2018-01-01'
+GROUP BY 1
+ORDER BY 1
+"""
+
+[[example]]
+id = "orders_by_status"
+question = "How many orders are there in each status?"
+sql = """
+SELECT o.order_status,
+       count(*) AS orders
+FROM shop.orders AS o
+GROUP BY o.order_status
+ORDER BY orders DESC
+"""
+
+[[example]]
+id = "revenue_top_categories"
+question = "What are the top 10 product categories by revenue?"
+sql = """
+SELECT coalesce(pc.product_category_name_english, 'unknown') AS category,
+       sum(oi.price) AS revenue
+FROM shop.order_items AS oi
+JOIN shop.orders AS o ON o.order_id = oi.order_id
+JOIN shop.products AS p ON p.product_id = oi.product_id
+LEFT JOIN shop.product_categories AS pc ON pc.product_category_name = p.product_category_name
+WHERE o.order_status = 'delivered'
+GROUP BY 1
+ORDER BY revenue DESC
+LIMIT 10
+"""
+
+[[example]]
+id = "monthly_revenue"
+question = "What was the revenue per month in 2018?"
+sql = """
+SELECT date_trunc('month', o.order_purchase_timestamp)::date AS month,
+       sum(oi.price) AS revenue
+FROM shop.orders AS o
+JOIN shop.order_items AS oi ON oi.order_id = o.order_id
+WHERE o.order_status = 'delivered'
+  AND o.order_purchase_timestamp >= DATE '2018-01-01'
+  AND o.order_purchase_timestamp < DATE '2019-01-01'
+GROUP BY 1
+ORDER BY 1
+"""
+
+[[example]]
+id = "average_order_value_by_month"
+question = "What is the average amount paid per order, by month?"
+sql = """
+WITH order_totals AS (
+    SELECT op.order_id,
+           sum(op.payment_value) AS paid
+    FROM shop.order_payments AS op
+    GROUP BY op.order_id
+)
+SELECT date_trunc('month', o.order_purchase_timestamp)::date AS month,
+       round(avg(ot.paid), 2) AS avg_order_value
+FROM shop.orders AS o
+JOIN order_totals AS ot ON ot.order_id = o.order_id
+GROUP BY 1
+ORDER BY 1
+"""
+
+[[example]]
+id = "delivery_days_by_state"
+question = "What is the average delivery time in days for each customer state?"
+sql = """
+SELECT c.customer_state,
+       round(avg(extract(epoch FROM o.order_delivered_customer_date
+                                    - o.order_purchase_timestamp) / 86400)::numeric, 1)
+           AS avg_delivery_days
+FROM shop.orders AS o
+JOIN shop.customers AS c ON c.customer_id = o.customer_id
+WHERE o.order_delivered_customer_date IS NOT NULL
+GROUP BY c.customer_state
+ORDER BY avg_delivery_days DESC
+"""
+
+[[example]]
+id = "late_delivery_rate_by_state"
+question = "What share of delivered orders arrived late in each state?"
+sql = """
+SELECT c.customer_state,
+       count(*) AS delivered_orders,
+       round(100.0 * count(*) FILTER (
+                 WHERE o.order_delivered_customer_date::date > o.order_estimated_delivery_date)
+             / count(*), 1) AS late_pct
+FROM shop.orders AS o
+JOIN shop.customers AS c ON c.customer_id = o.customer_id
+WHERE o.order_status = 'delivered'
+  AND o.order_delivered_customer_date IS NOT NULL
+GROUP BY c.customer_state
+ORDER BY late_pct DESC
+"""
+
+[[example]]
+id = "review_score_late_vs_on_time"
+question = "Do late deliveries get worse review scores than on-time ones?"
+sql = """
+SELECT CASE
+           WHEN o.order_delivered_customer_date::date > o.order_estimated_delivery_date
+               THEN 'late'
+           ELSE 'on time'
+       END AS delivery,
+       count(*) AS reviews,
+       round(avg(r.review_score), 2) AS avg_review_score
+FROM shop.orders AS o
+JOIN shop.order_reviews AS r ON r.order_id = o.order_id
+WHERE o.order_delivered_customer_date IS NOT NULL
+GROUP BY 1
+ORDER BY 1
+"""
+
+[[example]]
+id = "unique_customers"
+question = "How many unique customers have placed an order?"
+sql = """
+SELECT count(DISTINCT cp.person_key) AS unique_customers
+FROM shop.customer_person AS cp
+"""
+
+[[example]]
+id = "repeat_customer_share"
+question = "What percentage of customers ordered more than once?"
+sql = """
+WITH orders_per_person AS (
+    SELECT cp.person_key,
+           count(*) AS orders
+    FROM shop.orders AS o
+    JOIN shop.customer_person AS cp ON cp.customer_id = o.customer_id
+    GROUP BY cp.person_key
+)
+SELECT count(*) FILTER (WHERE opp.orders > 1) AS repeat_customers,
+       count(*) AS customers,
+       round(100.0 * count(*) FILTER (WHERE opp.orders > 1) / count(*), 2) AS repeat_pct
+FROM orders_per_person AS opp
+"""
+
+[[example]]
+id = "customers_by_state"
+question = "How many unique customers are there in each state?"
+sql = """
+SELECT c.customer_state,
+       count(DISTINCT cp.person_key) AS unique_customers
+FROM shop.customers AS c
+JOIN shop.customer_person AS cp ON cp.customer_id = c.customer_id
+GROUP BY c.customer_state
+ORDER BY unique_customers DESC
+"""
+
+[[example]]
+id = "payment_type_mix"
+question = "How do customers pay? Show the number of payments and the amount by payment type."
+sql = """
+SELECT op.payment_type,
+       count(*) AS payments,
+       sum(op.payment_value) AS amount,
+       round(100.0 * sum(op.payment_value) / sum(sum(op.payment_value)) OVER (), 1)
+           AS amount_pct
+FROM shop.order_payments AS op
+GROUP BY op.payment_type
+ORDER BY amount DESC
+"""
+
+[[example]]
+id = "credit_card_installments"
+question = "What is the average number of installments for credit card payments?"
+sql = """
+SELECT round(avg(op.payment_installments), 2) AS avg_installments
+FROM shop.order_payments AS op
+WHERE op.payment_type = 'credit_card'
+"""
+
+[[example]]
+id = "top_sellers_by_revenue"
+question = "Who are the top 10 sellers by revenue, and where are they located?"
+sql = """
+SELECT s.seller_id,
+       s.seller_city,
+       s.seller_state,
+       sum(oi.price) AS revenue,
+       count(DISTINCT oi.order_id) AS orders
+FROM shop.order_items AS oi
+JOIN shop.orders AS o ON o.order_id = oi.order_id
+JOIN shop.sellers AS s ON s.seller_id = oi.seller_id
+WHERE o.order_status = 'delivered'
+GROUP BY s.seller_id, s.seller_city, s.seller_state
+ORDER BY revenue DESC
+LIMIT 10
+"""
+
+[[example]]
+id = "sellers_per_state"
+question = "How many sellers are there in each state?"
+sql = """
+SELECT s.seller_state,
+       count(*) AS sellers
+FROM shop.sellers AS s
+GROUP BY s.seller_state
+ORDER BY sellers DESC
+"""
+
+[[example]]
+id = "freight_by_seller_state"
+question = "What is the average freight cost per item by seller state?"
+sql = """
+SELECT s.seller_state,
+       round(avg(oi.freight_value), 2) AS avg_freight
+FROM shop.order_items AS oi
+JOIN shop.sellers AS s ON s.seller_id = oi.seller_id
+GROUP BY s.seller_state
+ORDER BY avg_freight DESC
+"""
+
+[[example]]
+id = "multi_item_order_share"
+question = "What share of orders contain more than one item?"
+sql = """
+WITH items_per_order AS (
+    SELECT oi.order_id,
+           max(oi.order_item_id) AS items
+    FROM shop.order_items AS oi
+    GROUP BY oi.order_id
+)
+SELECT round(100.0 * count(*) FILTER (WHERE ipo.items > 1) / count(*), 2)
+           AS multi_item_pct
+FROM items_per_order AS ipo
+"""
+
+[[example]]
+id = "worst_rated_categories"
+question = "Which product categories have the lowest average review score (at least 100 reviews)?"
+sql = """
+WITH review_categories AS (
+    -- One row per (review, category): an order with 3 items must not count its review 3 times.
+    SELECT DISTINCT r.review_id,
+                    r.order_id,
+                    r.review_score,
+                    pc.product_category_name_english AS category
+    FROM shop.order_reviews AS r
+    JOIN shop.order_items AS oi ON oi.order_id = r.order_id
+    JOIN shop.products AS p ON p.product_id = oi.product_id
+    JOIN shop.product_categories AS pc ON pc.product_category_name = p.product_category_name
+)
+SELECT rc.category,
+       count(*) AS reviews,
+       round(avg(rc.review_score), 2) AS avg_review_score
+FROM review_categories AS rc
+GROUP BY rc.category
+HAVING count(*) >= 100
+ORDER BY avg_review_score
+LIMIT 10
+"""
+
+[[example]]
+id = "approval_hours"
+question = "How long does payment approval take on average, in hours?"
+sql = """
+SELECT round(avg(extract(epoch FROM o.order_approved_at - o.order_purchase_timestamp)
+                 / 3600)::numeric, 2) AS avg_approval_hours
+FROM shop.orders AS o
+WHERE o.order_approved_at IS NOT NULL
+"""
+
+[[example]]
+id = "canceled_orders_per_month"
+question = "How many orders were canceled each month?"
+sql = """
+SELECT date_trunc('month', o.order_purchase_timestamp)::date AS month,
+       count(*) AS canceled_orders
+FROM shop.orders AS o
+WHERE o.order_status = 'canceled'
+GROUP BY 1
+ORDER BY 1
+"""

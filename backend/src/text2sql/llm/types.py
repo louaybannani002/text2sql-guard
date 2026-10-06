@@ -6,6 +6,7 @@ from typing import Literal, TypedDict
 from pydantic import BaseModel, ConfigDict, Field
 
 type ModelRole = Literal["main", "fast", "local"]
+type UsageRole = ModelRole | Literal["embedding"]
 
 
 class Message(TypedDict):
@@ -20,7 +21,7 @@ class Usage(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    role: ModelRole
+    role: UsageRole
     model: str
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)

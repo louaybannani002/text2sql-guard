@@ -144,8 +144,8 @@ async def test_backoff_sleeps_between_retries(
         delays.append(delay)
         await real_sleep(0)
 
-    monkeypatch.setattr("text2sql.llm.provider.asyncio.sleep", recording_sleep)
-    monkeypatch.setattr("text2sql.llm.provider.backoff_delay", lambda retry, _policy: 0.1 * retry)
+    monkeypatch.setattr("text2sql.llm.calls.asyncio.sleep", recording_sleep)
+    monkeypatch.setattr("text2sql.llm.calls.backoff_delay", lambda retry, _policy: 0.1 * retry)
     fake_llm(
         RETRYABLE["internal_500"](),
         RETRYABLE["internal_500"](),
