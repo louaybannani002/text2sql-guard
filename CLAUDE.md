@@ -64,6 +64,23 @@ make down        # stop services (`make down-volumes` also wipes data)
   then truncates and reloads `shop` in one transaction (idempotent).
 - Integration tests (`make test-integration`) build and drop their own `text2sql_test` database.
 
+## Database roles (migration 0004)
+
+| Role         | Login | Purpose / rights                                                          |
+|--------------|-------|---------------------------------------------------------------------------|
+| `t2s_owner`  | no    | Owns schemas `shop` and `app`. Migrations after 0004 run as it.           |
+| `t2s_reader` | yes   | Executes LLM-generated SQL: SELECT on `shop` only, minus personal columns |
+| `t2s_app`    | yes   | Application state: SELECT/INSERT/UPDATE/DELETE on schema `app` only       |
+
+- `DATABASE_URL` (admin) is for migrations and loading only, never request handling.
+  `READER_DATABASE_URL` / `APP_DATABASE_URL` hold the role passwords; `make migrate` syncs them.
+- A new `shop` table is **not** readable by `t2s_reader` until its migration grants it — decide
+  which columns are personal data first (grant column-by-column if any are).
+- `t2s_reader`'s read-only mode and timeouts are session *defaults* the session itself can
+  change (`SET`, `BEGIN READ WRITE`, `ALTER ROLE … SET`). Privileges are the real wall; the
+  executor must still run each query in its own `READ ONLY` transaction with `SET LOCAL`
+  limits, and the guard must reject anything but a single read-only statement.
+
 Local service credentials (`POSTGRES_*`, `REDIS_*`) live in `backend/.env` and must match
 `DATABASE_URL` / `REDIS_URL`. SQL files in `backend/db/init/` run once, on an empty volume.
 

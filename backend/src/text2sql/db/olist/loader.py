@@ -12,6 +12,7 @@ from text2sql.db.olist.tables import (
     TABLES,
     TableSpec,
 )
+from text2sql.db.roles import OWNER_ROLE, set_local_role
 from text2sql.observability.logging import get_logger
 
 log = get_logger(__name__)
@@ -58,6 +59,7 @@ async def load_all(conn: asyncpg.Connection, raw_dir: Path) -> dict[str, int]:
     """
     tables = ", ".join(f"{SCHEMA}.{spec.table}" for spec in TABLES)
     async with conn.transaction():
+        await set_local_role(conn, OWNER_ROLE)  # data is written by the schema owner
         await conn.execute(f"TRUNCATE {tables} RESTART IDENTITY")
         for spec in TABLES:
             records = build_records(raw_dir, spec)

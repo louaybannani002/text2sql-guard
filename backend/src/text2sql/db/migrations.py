@@ -3,6 +3,11 @@
 Migrations are files named ``NNNN_description.sql`` in one directory. Each is applied once, in
 version order, inside its own transaction, and recorded in ``public.schema_migrations`` with a
 checksum. Editing an already-applied file is an error: add a new migration instead.
+
+A file whose first line is ``-- migrate: admin`` runs as the connecting user; that is only for
+bootstrap work needing superuser rights, such as creating roles. Every later migration runs as
+the ``t2s_owner`` role, so all objects it creates are owned by it. Migrations older than the
+bootstrap run as the connecting user too (the bootstrap transfers their objects to the owner).
 """
 
 import hashlib
@@ -12,10 +17,12 @@ from pathlib import Path
 
 import asyncpg
 
+from text2sql.db.roles import OWNER_ROLE, set_local_role
 from text2sql.observability.logging import get_logger
 
 log = get_logger(__name__)
 
+_ADMIN_MARKER = "-- migrate: admin"
 _FILENAME = re.compile(r"^(?P<version>\d{4})_(?P<name>[a-z0-9_]+)\.sql$")
 _LOCK_KEY = 0x7E57_5A1  # arbitrary, constant advisory-lock key for this runner
 
@@ -45,6 +52,12 @@ class Migration:
     def checksum(self) -> str:
         """SHA-256 of the SQL text, with line endings normalised."""
         return hashlib.sha256(self.sql.replace("\r\n", "\n").encode()).hexdigest()
+
+    @property
+    def runs_as_admin(self) -> bool:
+        """Whether this migration must run as the connecting (admin) user."""
+        first_line = self.sql.lstrip().split("\n", 1)[0].strip()
+        return first_line == _ADMIN_MARKER
 
 
 def discover(directory: Path) -> list[Migration]:
@@ -82,8 +95,27 @@ def pending(migrations: list[Migration], applied: dict[int, str]) -> list[Migrat
     return [m for m in migrations if m.version not in applied]
 
 
-async def migrate(conn: asyncpg.Connection, directory: Path) -> list[Migration]:
+def runs_as_owner(migration: Migration, migrations: list[Migration]) -> bool:
+    """Whether ``migration`` runs as the owner role rather than the connecting admin.
+
+    Every non-admin migration after the first ``-- migrate: admin`` one (the role bootstrap)
+    runs as the owner. This depends only on file order, never on whether the cluster-wide role
+    already exists, so a fresh database replays its history exactly like the original did.
+    """
+    bootstrap = next((m.version for m in migrations if m.runs_as_admin), None)
+    return not migration.runs_as_admin and bootstrap is not None and migration.version > bootstrap
+
+
+async def migrate(
+    conn: asyncpg.Connection, directory: Path, *, owner_role: str = OWNER_ROLE
+) -> list[Migration]:
     """Apply all pending migrations from ``directory``. Safe to run concurrently and repeatedly.
+
+    Args:
+        conn: Connection of a user allowed to ``SET ROLE owner_role`` (and superuser for
+            ``-- migrate: admin`` files).
+        directory: Folder containing the ``NNNN_description.sql`` files.
+        owner_role: Role that will own every object created by non-admin migrations.
 
     Returns:
         The migrations applied by this call (empty when already up to date).
@@ -95,8 +127,13 @@ async def migrate(conn: asyncpg.Connection, directory: Path) -> list[Migration]:
         rows = await conn.fetch("SELECT version, checksum FROM public.schema_migrations")
         todo = pending(migrations, {r["version"]: r["checksum"] for r in rows})
         for migration in todo:
+            as_owner = runs_as_owner(migration, migrations)
             async with conn.transaction():
+                if as_owner and not await set_local_role(conn, owner_role):
+                    msg = f"role {owner_role} does not exist; was the bootstrap migration applied?"
+                    raise MigrationError(msg)
                 await conn.execute(migration.sql)
+                await conn.execute("RESET ROLE")
                 await conn.execute(
                     "INSERT INTO public.schema_migrations (version, name, checksum)"
                     " VALUES ($1, $2, $3)",
@@ -104,7 +141,12 @@ async def migrate(conn: asyncpg.Connection, directory: Path) -> list[Migration]:
                     migration.name,
                     migration.checksum,
                 )
-            log.info("migration_applied", version=migration.version, name=migration.name)
+            log.info(
+                "migration_applied",
+                version=migration.version,
+                name=migration.name,
+                role=owner_role if as_owner else "admin",
+            )
     finally:
         await conn.execute("SELECT pg_advisory_unlock($1)", _LOCK_KEY)
     log.info("migrations_up_to_date", applied=len(todo), total=len(migrations))

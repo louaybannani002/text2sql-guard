@@ -7,6 +7,7 @@ from text2sql.config.settings import Settings, get_settings
 from text2sql.db.connection import connect
 from text2sql.db.migrations import migrate
 from text2sql.db.olist.loader import load_all
+from text2sql.db.roles import APP_ROLE, READER_ROLE, sync_login_passwords
 from text2sql.observability.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
@@ -16,6 +17,10 @@ async def _migrate(settings: Settings) -> None:
     conn = await connect(settings.database_url)
     try:
         await migrate(conn, settings.migrations_dir)
+        await sync_login_passwords(
+            conn,
+            {READER_ROLE: settings.reader_database_url, APP_ROLE: settings.app_database_url},
+        )
     finally:
         await conn.close()
 

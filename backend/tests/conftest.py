@@ -9,6 +9,8 @@ FAKE_ENV = {
     "APP_ENV": "test",
     "DATABASE_URL": "postgresql+asyncpg://user:pw@localhost:5432/test",
     "REDIS_URL": "redis://:pw@localhost:6379/0",
+    "READER_DATABASE_URL": "postgresql+asyncpg://t2s_reader:pw@localhost:5432/test",
+    "APP_DATABASE_URL": "postgresql+asyncpg://t2s_app:pw@localhost:5432/test",
     "OPENAI_API_KEY": "sk-test-not-a-real-key",
     "LANGFUSE_PUBLIC_KEY": "pk-lf-test",
     "LANGFUSE_SECRET_KEY": "sk-lf-test",

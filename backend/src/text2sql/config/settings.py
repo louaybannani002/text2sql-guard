@@ -30,8 +30,12 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=8000, ge=1, le=65535)
 
-    # Database (secret: contains credentials)
+    # Database (secrets: contain credentials)
+    # Admin connection: migrations and data loading only, never request handling.
     database_url: SecretStr
+    # Least-privilege roles (migration 0004); their passwords are synced from these URLs.
+    reader_database_url: SecretStr  # t2s_reader: runs LLM-generated SQL
+    app_database_url: SecretStr  # t2s_app: read/write on schema app
     migrations_dir: Path = Path("db/migrations")
     raw_data_dir: Path = Path("data/raw")
 

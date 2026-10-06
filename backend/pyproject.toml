@@ -70,7 +70,8 @@ docstring-code-format = true
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = "src"
+mypy_path = ["src", "."]
+explicit_package_bases = true  # tests/ has same-named files (conftest.py) in several dirs
 packages = ["text2sql"]
 plugins = ["pydantic.mypy"]
 warn_unreachable = true
