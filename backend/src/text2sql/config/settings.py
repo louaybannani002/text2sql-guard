@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     # Max tokens of schema text put in a prompt (o200k tokenizer).
     retrieval_token_budget: int = Field(default=2500, ge=200)
 
+    # Executor (t2s_reader). Thresholds measured on the Olist data: the 20 reviewed example
+    # queries cost <= 28k and estimate <= 113k rows in any plan node.
+    executor_statement_timeout_ms: int = Field(default=5000, ge=100, le=60_000)
+    executor_max_cost: float = Field(default=1_000_000.0, gt=0)
+    executor_max_plan_rows: int = Field(default=10_000_000, gt=0)
+    executor_max_rows: int = Field(default=1000, ge=1, le=100_000)
+    executor_pool_size: int = Field(default=5, ge=1, le=50)
+
     # Cache (secret: contains the password)
     redis_url: SecretStr
 

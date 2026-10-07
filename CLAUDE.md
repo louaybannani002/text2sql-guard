@@ -182,6 +182,20 @@ make down        # stop services (`make down-volumes` also wipes data)
   predicates (`AND`, `EXISTS`, `~`) as function nodes. To allow a function, add an example
   call there plus a test. Rejection reasons are fed back to the model; never put SQL in logs.
 
+## Executor (`executor/executor.py`)
+
+- `QueryExecutor.execute(validated_sql)` takes only `ValidatedSql`, runs as `t2s_reader` (pool on
+  `READER_DATABASE_URL`). Per query: `SET TRANSACTION READ ONLY`, `SET LOCAL statement_timeout`,
+  then `EXPLAIN (FORMAT JSON)`: reject if the top-node cost > `EXECUTOR_MAX_COST` or the largest
+  row estimate of ANY node > `EXECUTOR_MAX_PLAN_ROWS` (a LIMIT hides cross-join blow-ups from the
+  top node). Rows come through a cursor capped at `EXECUTOR_MAX_ROWS` + 1 (`truncated` flag),
+  converted to JSON-safe values. The transaction is ALWAYS rolled back, success or not.
+- Database errors map to `ExecutionError` subclasses (`executor/errors.py`): timeout, too
+  expensive, permission, read-only, invalid SQL, data error, unavailable. Catch those, never
+  asyncpg exceptions, above the executor.
+- Its tests start their own Postgres with Testcontainers (`tests/executor/test_executor.py`,
+  real migrations and roles). Ryuk is disabled there (flaky on Docker Desktop for Windows).
+
 ## Generated SQL rules (binding for the future components)
 
 - **Generated SQL must never use `SELECT *`** (nor `t.*`). Always name columns: personal-data

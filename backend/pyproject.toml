@@ -27,6 +27,7 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
+    "testcontainers>=4.15.0",
 ]
 
 [build-system]
@@ -59,6 +60,8 @@ ignore = [
     "PLR2004", # magic values are fine in tests
     "INP001",  # tests are collected via importlib, no __init__.py needed
     "S608",    # tests build SQL strings on purpose
+    "S105",    # fake credentials for throwaway test databases
+    "S106",
 ]
 
 [tool.ruff.lint.isort]
