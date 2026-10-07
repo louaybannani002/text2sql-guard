@@ -1,0 +1,63 @@
+# Retrieval evaluation: each question with the relations a correct query MUST be able to use.
+# `expected` lists the minimal set; retrieving more is fine (precision is not scored here).
+# Used by backend/tests/integration/test_retrieval_recall.py (target recall@5 >= 95%).
+
+[[question]]
+text = "How many orders were delivered late per state?"
+expected = ["shop.orders", "shop.customers"]
+
+[[question]]
+text = "What are the top 10 product categories by revenue?"
+expected = ["shop.order_items", "shop.products", "shop.product_categories"]
+
+[[question]]
+text = "What is the average review score for each product category?"
+expected = ["shop.order_reviews", "shop.order_items", "shop.products", "shop.product_categories"]
+
+[[question]]
+text = "How many customers have bought more than once?"
+expected = ["shop.customer_person"]
+
+[[question]]
+text = "Which payment methods are used the most?"
+expected = ["shop.order_payments"]
+
+[[question]]
+text = "What is the average freight cost by seller state?"
+expected = ["shop.order_items", "shop.sellers"]
+
+[[question]]
+text = "How many sellers are there in each state?"
+expected = ["shop.sellers"]
+
+[[question]]
+text = "What is the average delivery time in days?"
+expected = ["shop.orders"]
+
+[[question]]
+text = "What was the revenue per month in 2018?"
+expected = ["shop.orders", "shop.order_items"]
+
+[[question]]
+text = "Which sellers have the best average review score?"
+expected = ["shop.sellers", "shop.order_items", "shop.order_reviews"]
+
+[[question]]
+text = "What is the average number of installments for credit card payments?"
+expected = ["shop.order_payments"]
+
+[[question]]
+text = "Do late deliveries get lower review scores?"
+expected = ["shop.orders", "shop.order_reviews"]
+
+[[question]]
+text = "Which product categories have the heaviest products on average?"
+expected = ["shop.products", "shop.product_categories"]
+
+[[question]]
+text = "How many unique customers are there in each state?"
+expected = ["shop.customer_person", "shop.customers"]
+
+[[question]]
+text = "What are the latitude and longitude of zip code prefix 01310?"
+expected = ["shop.geolocations"]

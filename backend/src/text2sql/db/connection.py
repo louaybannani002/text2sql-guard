@@ -19,3 +19,12 @@ async def connect(
 ) -> asyncpg.Connection:
     """Open a single connection. Callers own it and must close it."""
     return await asyncpg.connect(asyncpg_dsn(database_url), timeout=connect_timeout_s)
+
+
+async def create_pool(
+    database_url: SecretStr | str, *, min_size: int = 1, max_size: int = 5
+) -> asyncpg.Pool:
+    """Open a connection pool (needed for parallel queries). Callers must close it."""
+    return await asyncpg.create_pool(
+        asyncpg_dsn(database_url), min_size=min_size, max_size=max_size, timeout=10
+    )

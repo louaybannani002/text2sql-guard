@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import asyncpg
 
-from text2sql.retrieval.catalog import SchemaDoc
+from text2sql.retrieval.documents import SchemaDoc
 from text2sql.retrieval.examples import Example
 
 EMBEDDING_DIMENSIONS = 1536  # must match vector(1536) in migration 0008
@@ -57,15 +57,17 @@ async def upsert_docs(
     await conn.executemany(
         """
         INSERT INTO app.schema_docs
-            (relation, kind, content, content_hash, embedding, embedding_model, updated_at)
-        VALUES ($1, $2, $3, $4, $5::public.vector, $6, now())
+            (relation, kind, content, content_hash, definition, embedding, embedding_model,
+             updated_at)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6::public.vector, $7, now())
         ON CONFLICT (relation) DO UPDATE SET
             kind = EXCLUDED.kind, content = EXCLUDED.content,
-            content_hash = EXCLUDED.content_hash, embedding = EXCLUDED.embedding,
-            embedding_model = EXCLUDED.embedding_model, updated_at = now()
+            content_hash = EXCLUDED.content_hash, definition = EXCLUDED.definition,
+            embedding = EXCLUDED.embedding, embedding_model = EXCLUDED.embedding_model,
+            updated_at = now()
         """,
         [
-            (d.relation, d.kind, d.content, d.content_hash, vector_literal(v), model)
+            (d.relation, d.kind, d.content, d.content_hash, d.definition, vector_literal(v), model)
             for d, v in zip(docs, vectors, strict=True)
         ],
     )

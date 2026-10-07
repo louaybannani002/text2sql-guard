@@ -8,19 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from text2sql.llm import LLMConfig, LLMResult, Message, generate_structured
 from text2sql.llm.prompts import load_prompt
 from text2sql.observability.logging import get_logger
+from text2sql.retrieval.context import FewShotExample
 
 log = get_logger(__name__)
 
 PROMPT_NAME = "generate_v1"
-
-
-class FewShotExample(BaseModel):
-    """A solved question shown to the model as a style reference."""
-
-    model_config = ConfigDict(frozen=True)
-
-    question: str
-    sql: str
 
 
 class SqlDraft(BaseModel):

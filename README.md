@@ -23,6 +23,7 @@ make up                 # postgres (pgvector) + redis via docker compose
 make check
 make load-data          # migrate + load Olist CSVs from backend/data/raw/
 make catalog            # schema docs + few-shot examples, with embeddings
+make ask Q="Revenue per month in 2018?"   # prints drafted SQL
 make test-integration
 make run
 ```

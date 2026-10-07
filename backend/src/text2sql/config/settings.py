@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     migrations_dir: Path = Path("db/migrations")
     raw_data_dir: Path = Path("data/raw")
     examples_seed_path: Path = Path("db/seeds/examples.toml")
+    # Max tokens of schema text put in a prompt (o200k tokenizer).
+    retrieval_token_budget: int = Field(default=2500, ge=200)
 
     # Cache (secret: contains the password)
     redis_url: SecretStr

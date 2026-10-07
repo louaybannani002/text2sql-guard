@@ -1,12 +1,10 @@
-"""Introspect schema ``shop`` into one retrieval document per relation.
+"""Introspect schema ``shop``: what each relation the query role can read looks like.
 
 Only what ``t2s_reader`` may read is described (CLAUDE.md: restricted columns never reach a
 prompt). Relations include views and materialized views. Must run as ``t2s_owner`` (to sample
 values) with ``search_path = pg_catalog`` (so type names, hence hashes, are deterministic).
 """
 
-import hashlib
-import json
 from dataclasses import dataclass
 
 import asyncpg
@@ -48,6 +46,7 @@ class ForeignKey:
     columns: tuple[str, ...]
     ref_relation: str
     ref_columns: tuple[str, ...]
+    inferred: bool = False  # a view's join key, matched to a table's primary key by name/type
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,16 +59,6 @@ class RelationInfo:
     columns: tuple[ColumnInfo, ...]
     foreign_keys: tuple[ForeignKey, ...]  # outgoing
     referenced_by: tuple[ForeignKey, ...]  # incoming
-
-
-@dataclass(frozen=True, slots=True)
-class SchemaDoc:
-    """The retrieval document for one relation."""
-
-    relation: str
-    kind: str
-    content: str
-    content_hash: str
 
 
 _RELATIONS = """
@@ -106,6 +95,15 @@ WHERE c.contype = 'f' AND sn.nspname = $1
 ORDER BY relation, c.conname
 """
 
+_PRIMARY_KEYS = """
+SELECT format('%I.%I', n.nspname, t.relname) AS relation, a.attname,
+       format_type(a.atttypid, a.atttypmod) AS type
+FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace
+JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+WHERE c.contype = 'p' AND cardinality(c.conkey) = 1 AND n.nspname = $1
+"""
+
 
 def _ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
@@ -132,7 +130,7 @@ async def introspect(conn: asyncpg.Connection, schema: str = SCHEMA) -> list[Rel
     readable: dict[str, tuple[tuple[str, str, str], tuple[ColumnInfo, ...]]] = {}
     for rel in await conn.fetch(_RELATIONS, schema):
         name = f"{schema}.{rel['relname']}"
-        columns = []
+        columns: list[ColumnInfo] = []
         for col in await conn.fetch(_COLUMNS, rel["oid"], READER_ROLE):
             withheld = (rel["relname"], col["attname"]) in NO_EXAMPLE_VALUES
             columns.append(
@@ -154,6 +152,7 @@ async def introspect(conn: asyncpg.Connection, schema: str = SCHEMA) -> list[Rel
         ForeignKey(r["relation"], tuple(r["columns"]), r["ref_relation"], tuple(r["ref_columns"]))
         for r in await conn.fetch(_FOREIGN_KEYS, schema)
     ]
+    fks += await _inferred_view_joins(conn, schema, readable)
     # A join hint is only useful (and only safe to show) if both sides are readable.
     fks = [
         fk
@@ -174,43 +173,25 @@ async def introspect(conn: asyncpg.Connection, schema: str = SCHEMA) -> list[Rel
     ]
 
 
-def render_document(info: RelationInfo) -> str:
-    """Plain-text document for one relation: what the LLM and the retriever see."""
-    lines = [f"# {info.name} ({info.kind})", info.comment or "(no description)", "", "Columns:"]
-    for col in info.columns:
-        null = "nullable" if col.nullable else "not null"
-        line = f"- {col.name}: {col.type}, {null}. {col.comment or '(no description)'}"
-        if col.examples is None:
-            line += " Example values withheld (free text written by customers)."
-        elif col.examples:
-            line += " Examples: " + ", ".join(repr(v) for v in col.examples) + "."
-        lines.append(line)
-    if info.foreign_keys:
-        lines += ["", "Foreign keys:"]
-        lines += [
-            f"- ({', '.join(fk.columns)}) -> {fk.ref_relation} ({', '.join(fk.ref_columns)})"
-            for fk in info.foreign_keys
-        ]
-    if info.referenced_by:
-        lines += ["", "Referenced by:"]
-        lines += [
-            f"- {fk.relation} ({', '.join(fk.columns)}) -> ({', '.join(fk.ref_columns)})"
-            for fk in info.referenced_by
-        ]
-    return "\n".join(lines) + "\n"
+async def _inferred_view_joins(
+    conn: asyncpg.Connection,
+    schema: str,
+    readable: dict[str, tuple[tuple[str, str, str], tuple[ColumnInfo, ...]]],
+) -> list[ForeignKey]:
+    """Join hints for views, which cannot have foreign keys.
 
-
-def to_doc(info: RelationInfo) -> SchemaDoc:
-    """Render and hash one relation."""
-    content = render_document(info)
-    return SchemaDoc(info.name, info.kind, content, _sha256(content))
-
-
-def schema_version(docs: list[SchemaDoc]) -> str:
-    """Hash of the whole catalog: changes iff any document's content changes."""
-    payload = json.dumps(sorted((d.relation, d.content_hash) for d in docs))
-    return _sha256(payload)
-
-
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    A view column joins a table when it matches that table's single-column primary key by name
+    and type (e.g. ``customer_person.customer_id`` -> ``customers.customer_id``).
+    """
+    keys = {
+        (r["attname"], r["type"]): r["relation"] for r in await conn.fetch(_PRIMARY_KEYS, schema)
+    }
+    joins = []
+    for name, ((_, kind, _comment), columns) in readable.items():
+        if kind == "table":
+            continue
+        for col in columns:
+            target = keys.get((col.name, col.type))
+            if target is not None and target != name:
+                joins.append(ForeignKey(name, (col.name,), target, (col.name,), inferred=True))
+    return joins

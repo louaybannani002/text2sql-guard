@@ -1,8 +1,7 @@
 """Rebuild the retrieval catalog: introspect, diff by hash, embed only what changed, store."""
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
 
 import asyncpg
 
@@ -10,23 +9,12 @@ from text2sql.db.roles import OWNER_ROLE, set_local_role
 from text2sql.llm.types import Usage
 from text2sql.observability.logging import get_logger
 from text2sql.retrieval import store
-from text2sql.retrieval.catalog import SchemaDoc, introspect, schema_version, to_doc
+from text2sql.retrieval.catalog import introspect
+from text2sql.retrieval.documents import SchemaDoc, schema_version, to_doc
+from text2sql.retrieval.embedding import Embedder
 from text2sql.retrieval.examples import Example
 
 log = get_logger(__name__)
-
-
-class Embedded(Protocol):
-    """What an embedder returns (``text2sql.llm.embeddings.EmbeddingResult`` fits)."""
-
-    @property
-    def vectors(self) -> list[list[float]]: ...  # noqa: D102
-
-    @property
-    def usage(self) -> Usage: ...  # noqa: D102
-
-
-type Embedder = Callable[[Sequence[str]], Awaitable[Embedded]]
 
 
 class CatalogBuildError(RuntimeError):

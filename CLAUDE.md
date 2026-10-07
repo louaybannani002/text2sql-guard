@@ -50,6 +50,7 @@ make migrate     # apply pending SQL migrations
 make load-data   # migrate, then (re)load the Olist CSVs into schema `shop` + refresh views
 make refresh-views  # refresh materialized views (e.g. shop.customer_person)
 make catalog     # rebuild the retrieval catalog; re-embeds only changes (FORCE=1: all)
+make ask Q="..." # retrieve schema + draft SQL for a question (printed, NOT executed)
 make psql        # psql shell in the postgres container
 make down        # stop services (`make down-volumes` also wipes data)
 ```
@@ -115,6 +116,23 @@ make down        # stop services (`make down-volumes` also wipes data)
   examples whose content (or the embedding model) changed; `make catalog FORCE=1` re-embeds all.
   Run `make catalog` after any migration that changes `shop` or its comments.
 - The embedding model must produce 1536-dimension vectors (`vector(1536)` in migration 0008).
+- Views have no foreign keys: the catalog infers a join when a view column matches a table's
+  single-column primary key by name and type (marked `inferred`, rendered as a comment).
+
+## Retrieval (`retrieval/retriever.py`)
+
+- `retrieve(question, k=5, ...)` runs as `t2s_app`: vector + full-text search in parallel,
+  fused with Reciprocal Rank Fusion, top-k expanded along the FK graph with every relation
+  needed to join them, plus the 3 most similar examples. Rendered as CREATE TABLE-style text
+  within `RETRIEVAL_TOKEN_BUDGET`; detail is shed least-relevant-first (sample values, then
+  column comments, then whole relations; never the top one).
+- Token counts use tiktoken `o200k_base` from `backend/.cache/tiktoken` (filled by
+  `make install`); without it a conservative estimate is used. Never call LiteLLM's
+  `token_counter` (it downloads `cl100k_base` at runtime).
+- Recall is evaluated on `eval/retrieval/questions.toml` (live test, target recall@5 >= 95%).
+  Add a question there whenever retrieval misses a table in practice.
+- `pipeline.ask` = retrieve + `generate_sql`. Its SQL is **unvalidated**: never execute it
+  until the guard (prompt 10) and executor exist.
 
 ## Integration tests
 

@@ -8,12 +8,12 @@ from tests.support.fake_llm import FakeCompletion, llm_config, model_response
 from text2sql.llm import LLMOutputValidationError
 from text2sql.llm.prompts import load_prompt
 from text2sql.pipeline.generate import (
-    FewShotExample,
     SqlDraft,
     build_messages,
     generate_sql,
     render_examples,
 )
+from text2sql.retrieval.context import FewShotExample
 
 SCHEMA = "## shop.orders (table)\n- order_id (shop.olist_id): Unique identifier of the order."
 QUESTION = "How many orders are there?"

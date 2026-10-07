@@ -1,13 +1,14 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test test-integration run check up down down-volumes psql migrate load-data refresh-views catalog
+.PHONY: help install lint format typecheck test test-integration run check up down down-volumes psql migrate load-data refresh-views catalog ask
 
 COMPOSE := docker compose -f ../docker-compose.yml --env-file .env
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
 
-install: ## Install runtime + dev dependencies into .venv
+install: ## Install dependencies and cache the tokenizer (network, once)
 	uv sync --all-groups
+	uv run python -m text2sql.llm.tokens
 
 lint: ## Lint and check formatting
 	uv run ruff check src tests
@@ -55,3 +56,6 @@ refresh-views: ## Refresh materialized views in shop (run after any data load)
 
 catalog: migrate ## Rebuild the retrieval catalog; re-embeds only what changed (FORCE=1: everything)
 	uv run python -m text2sql.db $(if $(FORCE),catalog-force,catalog)
+
+ask: ## Draft SQL for a question (not executed): make ask Q="How many orders per state?"
+	uv run python -m text2sql.pipeline "$(Q)"
