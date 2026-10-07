@@ -57,12 +57,19 @@ def compose_services() -> None:
     if docker is None:
         pytest.skip("docker is not installed")
     compose_up = [docker, "compose", "-f", "../docker-compose.yml", "--env-file", ".env"]
-    subprocess.run(  # noqa: S603 - fixed argument list, no user input
+    started = subprocess.run(  # noqa: S603 - fixed argument list, no user input
         [*compose_up, "up", "-d", "--wait"],
         cwd=BACKEND,
-        check=True,
+        check=False,
         capture_output=True,
+        text=True,
     )
+    if started.returncode != 0:
+        # Fail once with the reason instead of ~100 identical CalledProcessError setup errors.
+        reason = (started.stderr or started.stdout).strip().splitlines()[-1:] or ["no output"]
+        pytest.exit(
+            f"`docker compose up` failed (is Docker Desktop running?): {reason[0]}", returncode=1
+        )
 
 
 def _fingerprint(settings: Settings) -> str:

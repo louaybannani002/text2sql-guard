@@ -47,7 +47,9 @@ make check       # lint + typecheck + test — must pass before every commit
 make up          # start postgres (pgvector, pg16) + redis 7 from ../docker-compose.yml
 make test-integration  # smoke tests against those services
 make migrate     # apply pending SQL migrations
-make load-data   # migrate, then (re)load the Olist CSVs into schema `shop`
+make load-data   # migrate, then (re)load the Olist CSVs into schema `shop` + refresh views
+make refresh-views  # refresh materialized views (e.g. shop.customer_person)
+make catalog     # rebuild the retrieval catalog; re-embeds only changes (FORCE=1: all)
 make psql        # psql shell in the postgres container
 make down        # stop services (`make down-volumes` also wipes data)
 ```

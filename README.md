@@ -22,6 +22,7 @@ make install
 make up                 # postgres (pgvector) + redis via docker compose
 make check
 make load-data          # migrate + load Olist CSVs from backend/data/raw/
+make catalog            # schema docs + few-shot examples, with embeddings
 make test-integration
 make run
 ```
