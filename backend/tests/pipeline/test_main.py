@@ -1,11 +1,15 @@
 import io
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
 
 from text2sql.config.settings import Settings
 from text2sql.guard.input_guard import InputVerdict
+from text2sql.guard.sql_policy import SqlPolicy
+from text2sql.guard.sql_validator import ValidatedSql, validate
 from text2sql.llm import LLMProviderError
 from text2sql.llm.types import Usage
 from text2sql.pipeline import __main__ as cli
@@ -26,6 +30,7 @@ USAGE = Usage(
 )
 
 
+POLICY = SqlPolicy(readable_columns={"shop.orders": frozenset({"order_id"})})
 ALLOWED = InputVerdict(allowed=True, category="data_question", reason="ok", layer="classifier")
 BLOCKED = AskResult(
     "DROP TABLE shop.orders",
@@ -36,6 +41,7 @@ BLOCKED = AskResult(
         layer="rules",
         rule="drop_object",
     ),
+    None,
     None,
     None,
     [],
@@ -63,17 +69,39 @@ def _result(**draft: Any) -> AskResult:  # noqa: ANN401
         "confidence": 0.9,
         "answerable": True,
     }
-    return AskResult("q", ALLOWED, context, SqlDraft.model_validate(fields | draft), [USAGE])
+    sql_draft = SqlDraft.model_validate(fields | draft)
+    validation = validate(sql_draft.sql, POLICY) if sql_draft.answerable else None
+    return AskResult("q", ALLOWED, context, sql_draft, validation, [USAGE])
 
 
-def test_format_answerable() -> None:
-    assert cli.format_result(_result()) == (
-        "-- Counts every order.\n"
-        "-- assumption: All statuses count.\n"
-        "-- confidence: 0.90 | schema context: shop.orders, shop.customers (321 tokens)"
-        " | cost: $0.0042\n"
-        "SELECT count(*) AS orders FROM shop.orders AS o;\n"
-    )
+def test_format_answerable_prints_the_validated_sql() -> None:
+    result = _result()
+    assert isinstance(result.validation, ValidatedSql)
+    assert cli.format_result(result).splitlines() == [
+        "-- Counts every order.",
+        "-- assumption: All statuses count.",
+        (
+            "-- confidence: 0.90 | schema context: shop.orders, shop.customers (321 tokens)"
+            " | cost: $0.0042"
+        ),
+        "-- validator: added LIMIT 1000",
+        *(result.validation.sql + ";").splitlines(),
+    ]
+    assert cli.exit_code(result) == 0
+
+
+def test_format_rejected_shows_rule_and_commented_draft() -> None:
+    result = _result(sql="SELECT o.order_id FROM shop.orders AS o; DROP TABLE shop.orders")
+    text = cli.format_result(result)
+    assert text.startswith("-- REJECTED by the SQL validator (single_statement): ")
+    assert "--   SELECT o.order_id FROM shop.orders AS o; DROP TABLE shop.orders" in text
+    assert all(line.startswith("--") for line in text.splitlines())  # nothing runnable
+    assert cli.exit_code(result) == cli.EXIT_REJECTED
+
+
+def test_exit_codes() -> None:
+    assert cli.exit_code(BLOCKED) == cli.EXIT_BLOCKED
+    assert cli.exit_code(_result(answerable=False, sql="")) == cli.EXIT_UNANSWERABLE
 
 
 def test_format_blocked() -> None:
@@ -95,6 +123,10 @@ def test_format_unanswerable_has_no_sql() -> None:
 class _Pool:
     closed = False
 
+    @asynccontextmanager
+    async def acquire(self) -> AsyncIterator[object]:
+        yield object()  # load_policy is stubbed; the connection is never used
+
     async def close(self) -> None:
         self.closed = True
 
@@ -106,7 +138,11 @@ def pool(monkeypatch: pytest.MonkeyPatch) -> _Pool:
     async def create_pool(*_args: Any, **_kwargs: Any) -> _Pool:  # noqa: ANN401
         return pool
 
+    async def fake_load_policy(_conn: object) -> SqlPolicy:
+        return POLICY
+
     monkeypatch.setattr(cli, "create_pool", create_pool)
+    monkeypatch.setattr(cli, "load_policy", fake_load_policy)
     return pool
 
 
@@ -131,14 +167,15 @@ async def test_run_prints_sql_and_returns_exit_code(
     answerable: bool,  # noqa: FBT001
     code: int,
 ) -> None:
-    async def fake_ask(question: str, **_kwargs: Any) -> AskResult:  # noqa: ANN401
+    async def fake_ask(question: str, deps: Any) -> AskResult:  # noqa: ANN401
         assert question == "How many orders?"
+        assert deps.policy is POLICY
         return _result(answerable=answerable, sql="SELECT 1" if answerable else "")
 
     monkeypatch.setattr(cli, "ask", fake_ask)
     out, err = io.StringIO(), io.StringIO()
     assert await cli.run("How many orders?", settings, out, err) == code
-    assert ("SELECT 1;" in out.getvalue()) is answerable
+    assert ("LIMIT 1000;" in out.getvalue()) is answerable
     assert err.getvalue() == ""
     assert pool.closed
 

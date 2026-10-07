@@ -50,7 +50,7 @@ make migrate     # apply pending SQL migrations
 make load-data   # migrate, then (re)load the Olist CSVs into schema `shop` + refresh views
 make refresh-views  # refresh materialized views (e.g. shop.customer_person)
 make catalog     # rebuild the retrieval catalog; re-embeds only changes (FORCE=1: all)
-make ask Q="..." # guard + retrieve + draft SQL (printed, NOT executed); exit 3 = blocked
+make ask Q="..." # full pipeline, prints validated SQL (NOT executed); exit 3 blocked, 4 rejected
 make psql        # psql shell in the postgres container
 make down        # stop services (`make down-volumes` also wipes data)
 ```
@@ -131,8 +131,8 @@ make down        # stop services (`make down-volumes` also wipes data)
   `token_counter` (it downloads `cl100k_base` at runtime).
 - Recall is evaluated on `eval/retrieval/questions.toml` (live test, target recall@5 >= 95%).
   Add a question there whenever retrieval misses a table in practice.
-- `pipeline.ask` = input guard + retrieve + `generate_sql`. Its SQL is **unvalidated**: never
-  execute it until the SQL validator (prompt 10) and executor exist.
+- `pipeline.ask` = input guard + retrieve + `generate_sql` + SQL validator. Only
+  `ValidatedSql.sql` may ever be executed (the executor is next); never run a draft directly.
 
 ## Input guard (`guard/input_guard.py`)
 
@@ -165,6 +165,22 @@ make down        # stop services (`make down-volumes` also wipes data)
   created and dropped per session.
 - Use `127.0.0.1`, not `localhost`, in connection URLs: on Windows `localhost` tries IPv6
   first and costs ~2 s per connection.
+
+## SQL validator (`guard/sql_validator.py`)
+
+- `validate(sql, policy)` -> `ValidatedSql | Rejection`, on the sqlglot AST (postgres dialect);
+  **never regex**. Rules in order (`guard/sql_rules.py`): parse, single statement, read-only
+  (no DML/DDL/DCL/Command node anywhere, incl. CTEs), no INTO/locks/COPY, tables (`shop` +
+  allowlist, no system catalogs, schema-qualified), no `*`, functions (denylist + allowlist),
+  cast types, columns (resolved through scopes with sqlglot's qualifier; personal columns and
+  whole-row references rejected), then the outer LIMIT is capped at 1000.
+- `SqlPolicy` comes from the database (`load_policy`, works as `t2s_app`): readable columns from
+  the catalog, personal columns from `t2s_reader`'s real privileges. The unit-test fixture
+  `tests/guard/fixtures/shop_policy.json` is checked against the live policy in integration.
+- The function allowlist is built by parsing example calls (`guard/sql_functions.py`), because
+  sqlglot renames functions (`date_trunc` -> `timestamp_trunc`) and models some operators and
+  predicates (`AND`, `EXISTS`, `~`) as function nodes. To allow a function, add an example
+  call there plus a test. Rejection reasons are fed back to the model; never put SQL in logs.
 
 ## Generated SQL rules (binding for the future components)
 

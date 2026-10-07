@@ -8,9 +8,7 @@ from collections.abc import Sequence
 from types import TracebackType
 from typing import Protocol
 
-import asyncpg
-from asyncpg.pool import PoolConnectionProxy
-
+from text2sql.db.connection import Queryable
 from text2sql.llm.tokens import count_tokens
 from text2sql.observability.logging import get_logger
 from text2sql.retrieval.catalog import RelationInfo
@@ -24,9 +22,6 @@ from text2sql.retrieval.store import vector_literal
 log = get_logger(__name__)
 
 CANDIDATES = 20  # per search, before fusion
-
-
-type Queryable = asyncpg.Connection | PoolConnectionProxy[asyncpg.Record]
 
 
 class _Acquired(Protocol):

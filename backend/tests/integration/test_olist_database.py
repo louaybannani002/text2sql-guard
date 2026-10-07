@@ -93,7 +93,7 @@ async def test_no_orphan_rows(
 ) -> None:
     # Identifiers come from the static FOREIGN_KEYS list above.
     orphans = await admin.fetchval(
-        f"SELECT count(*) FROM shop.{child} c "  # noqa: S608
+        f"SELECT count(*) FROM shop.{child} c "
         f"WHERE c.{col} IS NOT NULL AND NOT EXISTS "
         f"(SELECT 1 FROM shop.{parent} p WHERE p.{parent_col} = c.{col})"
     )

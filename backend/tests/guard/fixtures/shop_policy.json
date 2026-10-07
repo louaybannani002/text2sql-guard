@@ -1,0 +1,85 @@
+{
+  "readable_columns": {
+    "shop.customer_person": [
+      "customer_id",
+      "person_key"
+    ],
+    "shop.customers": [
+      "customer_id",
+      "customer_state"
+    ],
+    "shop.geolocations": [
+      "geolocation_city",
+      "geolocation_id",
+      "geolocation_lat",
+      "geolocation_lng",
+      "geolocation_state",
+      "geolocation_zip_code_prefix"
+    ],
+    "shop.order_items": [
+      "freight_value",
+      "order_id",
+      "order_item_id",
+      "price",
+      "product_id",
+      "seller_id",
+      "shipping_limit_date"
+    ],
+    "shop.order_payments": [
+      "order_id",
+      "payment_installments",
+      "payment_sequential",
+      "payment_type",
+      "payment_value"
+    ],
+    "shop.order_reviews": [
+      "order_id",
+      "review_answer_timestamp",
+      "review_comment_message",
+      "review_comment_title",
+      "review_creation_date",
+      "review_id",
+      "review_score"
+    ],
+    "shop.orders": [
+      "customer_id",
+      "order_approved_at",
+      "order_delivered_carrier_date",
+      "order_delivered_customer_date",
+      "order_estimated_delivery_date",
+      "order_id",
+      "order_purchase_timestamp",
+      "order_status"
+    ],
+    "shop.product_categories": [
+      "product_category_name",
+      "product_category_name_english"
+    ],
+    "shop.products": [
+      "product_category_name",
+      "product_description_length",
+      "product_height_cm",
+      "product_id",
+      "product_length_cm",
+      "product_name_length",
+      "product_photos_qty",
+      "product_weight_g",
+      "product_width_cm"
+    ],
+    "shop.sellers": [
+      "seller_city",
+      "seller_id",
+      "seller_state"
+    ]
+  },
+  "personal_columns": {
+    "shop.customers": [
+      "customer_city",
+      "customer_unique_id",
+      "customer_zip_code_prefix"
+    ],
+    "shop.sellers": [
+      "seller_zip_code_prefix"
+    ]
+  }
+}

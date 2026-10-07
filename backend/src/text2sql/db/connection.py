@@ -1,7 +1,11 @@
 """asyncpg connection helpers."""
 
 import asyncpg
+from asyncpg.pool import PoolConnectionProxy
 from pydantic import SecretStr
+
+# A dedicated connection or one borrowed from a pool: both run queries the same way.
+type Queryable = asyncpg.Connection | PoolConnectionProxy[asyncpg.Record]
 
 
 def asyncpg_dsn(database_url: SecretStr | str) -> str:

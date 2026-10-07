@@ -6,9 +6,11 @@ import pytest
 
 from tests.support.fake_llm import FakeCompletion, llm_config, model_response
 from text2sql.guard.input_guard import InputVerdict
+from text2sql.guard.sql_policy import SqlPolicy
+from text2sql.guard.sql_validator import Rejection, ValidatedSql
 from text2sql.llm.types import Usage
 from text2sql.pipeline import ask as ask_module
-from text2sql.pipeline.ask import AskResult, ask
+from text2sql.pipeline.ask import AskDependencies, AskResult, ask
 from text2sql.pipeline.generate import SqlDraft
 from text2sql.retrieval.context import RetrievedExample, RetrievedTable, SchemaContext
 
@@ -75,8 +77,17 @@ ALLOWED = model_response(
 )
 
 
+POLICY = SqlPolicy(readable_columns={"shop.orders": frozenset({"order_id", "order_status"})})
+
+
 async def _ask(question: str = "How many orders?") -> AskResult:
-    return await ask(question, db=object(), llm=llm_config(), token_budget=1234)  # type: ignore[arg-type]  # db unused: retrieve is stubbed
+    deps = AskDependencies(
+        db=object(),  # type: ignore[arg-type]  # unused: retrieve is stubbed
+        llm=llm_config(),
+        policy=POLICY,
+        token_budget=1234,
+    )
+    return await ask(question, deps)
 
 
 async def test_retrieval_feeds_generation(
@@ -137,5 +148,37 @@ async def test_classifier_blocked_question_skips_retrieval_and_generation(
 def test_cost_is_unknown_if_any_call_is_unpriced() -> None:
     context = _context("q", cost=None)
     verdict = InputVerdict(allowed=True, category="data_question", reason="ok", layer="classifier")
-    result = AskResult("q", verdict, context, SqlDraft.model_validate(DRAFT), [context.usage])
+    draft = SqlDraft.model_validate(DRAFT)
+    result = AskResult("q", verdict, context, draft, None, [context.usage])
     assert result.cost_usd is None
+
+
+async def test_draft_is_validated_and_limited(
+    stub_retrieve: list[dict[str, Any]], fake_llm: Callable[..., FakeCompletion]
+) -> None:
+    del stub_retrieve
+    fake_llm(ALLOWED, model_response(json.dumps(DRAFT), model="gpt-5.4"))
+    result = await _ask()
+    assert isinstance(result.validation, ValidatedSql)
+    assert result.validation.rewrites == ["added LIMIT 1000"]
+
+
+async def test_draft_breaking_a_rule_is_rejected(
+    stub_retrieve: list[dict[str, Any]], fake_llm: Callable[..., FakeCompletion]
+) -> None:
+    del stub_retrieve
+    bad = DRAFT | {"sql": "SELECT pg_sleep(10) AS x"}
+    fake_llm(ALLOWED, model_response(json.dumps(bad), model="gpt-5.4"))
+    result = await _ask()
+    assert isinstance(result.validation, Rejection)
+    assert result.validation.rule == "functions"
+
+
+async def test_unanswerable_draft_is_not_validated(
+    stub_retrieve: list[dict[str, Any]], fake_llm: Callable[..., FakeCompletion]
+) -> None:
+    del stub_retrieve
+    nothing = DRAFT | {"sql": "", "tables_used": [], "answerable": False}
+    fake_llm(ALLOWED, model_response(json.dumps(nothing), model="gpt-5.4"))
+    result = await _ask()
+    assert result.validation is None

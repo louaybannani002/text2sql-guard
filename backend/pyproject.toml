@@ -58,6 +58,7 @@ ignore = [
     "D",       # test names are the documentation
     "PLR2004", # magic values are fine in tests
     "INP001",  # tests are collected via importlib, no __init__.py needed
+    "S608",    # tests build SQL strings on purpose
 ]
 
 [tool.ruff.lint.isort]

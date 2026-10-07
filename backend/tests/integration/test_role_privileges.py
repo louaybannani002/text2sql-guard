@@ -91,7 +91,7 @@ async def test_reader_writes_fail_even_in_read_write_transaction(
 async def test_reader_cannot_read_revoked_column(
     reader: asyncpg.Connection, table: str, column: str
 ) -> None:
-    sql = f"SELECT {column} FROM shop.{table} LIMIT 1"  # noqa: S608
+    sql = f"SELECT {column} FROM shop.{table} LIMIT 1"
     await expect_failure(reader, sql, InsufficientPrivilegeError)
 
 
@@ -99,7 +99,7 @@ async def test_reader_cannot_read_revoked_column(
 async def test_reader_cannot_select_star_on_personal_tables(
     reader: asyncpg.Connection, table: str
 ) -> None:
-    sql = f"SELECT * FROM shop.{table} LIMIT 1"  # noqa: S608
+    sql = f"SELECT * FROM shop.{table} LIMIT 1"
     await expect_failure(reader, sql, InsufficientPrivilegeError)
 
 
