@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from text2sql.config.settings import Settings
+from text2sql.guard.input_guard import InputVerdict
 from text2sql.llm import LLMProviderError
 from text2sql.llm.types import Usage
 from text2sql.pipeline import __main__ as cli
@@ -22,6 +23,22 @@ USAGE = Usage(
     latency_ms=900.0,
     cost_usd=0.0042,
     attempts=1,
+)
+
+
+ALLOWED = InputVerdict(allowed=True, category="data_question", reason="ok", layer="classifier")
+BLOCKED = AskResult(
+    "DROP TABLE shop.orders",
+    InputVerdict(
+        allowed=False,
+        category="sql_command",
+        reason="Ask a question in plain language; SQL commands are not accepted.",
+        layer="rules",
+        rule="drop_object",
+    ),
+    None,
+    None,
+    [],
 )
 
 
@@ -46,7 +63,7 @@ def _result(**draft: Any) -> AskResult:  # noqa: ANN401
         "confidence": 0.9,
         "answerable": True,
     }
-    return AskResult("q", context, SqlDraft.model_validate(fields | draft), [USAGE])
+    return AskResult("q", ALLOWED, context, SqlDraft.model_validate(fields | draft), [USAGE])
 
 
 def test_format_answerable() -> None:
@@ -57,6 +74,14 @@ def test_format_answerable() -> None:
         " | cost: $0.0042\n"
         "SELECT count(*) AS orders FROM shop.orders AS o;\n"
     )
+
+
+def test_format_blocked() -> None:
+    reason = "Ask a question in plain language; SQL commands are not accepted."
+    assert cli.format_result(BLOCKED).splitlines() == [
+        f"-- BLOCKED (sql_command): {reason}",
+        "-- cost: $0.0000",
+    ]
 
 
 def test_format_unanswerable_has_no_sql() -> None:
@@ -83,6 +108,19 @@ def pool(monkeypatch: pytest.MonkeyPatch) -> _Pool:
 
     monkeypatch.setattr(cli, "create_pool", create_pool)
     return pool
+
+
+async def test_run_blocked_exits_3(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, pool: _Pool
+) -> None:
+    async def blocked_ask(*_args: Any, **_kwargs: Any) -> AskResult:  # noqa: ANN401
+        return BLOCKED
+
+    monkeypatch.setattr(cli, "ask", blocked_ask)
+    out, err = io.StringIO(), io.StringIO()
+    assert await cli.run("DROP TABLE shop.orders", settings, out, err) == cli.EXIT_BLOCKED
+    assert out.getvalue().startswith("-- BLOCKED (sql_command)")
+    assert pool.closed
 
 
 @pytest.mark.parametrize(("answerable", "code"), [(True, 0), (False, cli.EXIT_UNANSWERABLE)])

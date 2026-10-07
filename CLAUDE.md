@@ -50,7 +50,7 @@ make migrate     # apply pending SQL migrations
 make load-data   # migrate, then (re)load the Olist CSVs into schema `shop` + refresh views
 make refresh-views  # refresh materialized views (e.g. shop.customer_person)
 make catalog     # rebuild the retrieval catalog; re-embeds only changes (FORCE=1: all)
-make ask Q="..." # retrieve schema + draft SQL for a question (printed, NOT executed)
+make ask Q="..." # guard + retrieve + draft SQL (printed, NOT executed); exit 3 = blocked
 make psql        # psql shell in the postgres container
 make down        # stop services (`make down-volumes` also wipes data)
 ```
@@ -131,8 +131,23 @@ make down        # stop services (`make down-volumes` also wipes data)
   `token_counter` (it downloads `cl100k_base` at runtime).
 - Recall is evaluated on `eval/retrieval/questions.toml` (live test, target recall@5 >= 95%).
   Add a question there whenever retrieval misses a table in practice.
-- `pipeline.ask` = retrieve + `generate_sql`. Its SQL is **unvalidated**: never execute it
-  until the guard (prompt 10) and executor exist.
+- `pipeline.ask` = input guard + retrieve + `generate_sql`. Its SQL is **unvalidated**: never
+  execute it until the SQL validator (prompt 10) and executor exist.
+
+## Input guard (`guard/input_guard.py`)
+
+- `check_input(question)` runs before anything else. Layer 1 (`guard/input_rules.py`, no LLM):
+  max 500 chars, no control/invisible characters, SQL *statement shapes* (`DROP TABLE`,
+  `DELETE FROM`, `UPDATE … SET`, `GRANT SELECT … TO`), injection phrases, prompt-tag forgery;
+  text is NFKC-normalised first. Layer 2 (`fast` model, prompt `input_guard_v1`) classifies
+  `data_question | off_topic | prompt_injection | harmful`, only if layer 1 passed.
+- Never match bare SQL keywords: "did revenue drop", "sellers grant installments" are real
+  questions. Every new rule needs a benign counter-example in the tests.
+- Fails closed (`guard_error`) when the classifier is unavailable. Blocks are logged with
+  layer/category/rule and **never the question text**. User-facing reasons are ours, not the
+  model's (which could echo the input).
+- Labelled cases live in `eval/guard/input_cases.toml` (20 benign, 20 attacks); a live test
+  runs all of them. Add every new bypass or false positive found in practice there.
 
 ## Integration tests
 
