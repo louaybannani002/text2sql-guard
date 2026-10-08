@@ -249,6 +249,34 @@ make down        # stop services (`make down-volumes` also wipes data)
   is recorded in `Answer.trace` (input summary, output, latency, tokens, cost). The trace is
   for the caller; logs carry only counts and statuses, never SQL or questions.
 
+## Cache (`cache/`, wired in by `pipeline/cache.py`)
+
+- Two levels in Redis, looked up in a traced `cache` stage **after the input guard** (a cached
+  answer never skips it):
+  1. **Exact** (`cache/exact.py`): key = hash(normalised question, `schema_version`, prompt
+     version, main model). Value = validated SQL, explanation, assumptions and the rows, TTL
+     `CACHE_TTL_S`. A hit returns the stored rows without executing.
+  2. **Semantic** (`cache/semantic.py`): cosine similarity >= `CACHE_SEMANTIC_THRESHOLD` (0.95)
+     with an earlier question's embedding, **and** equal literal fingerprints (numbers and
+     quoted strings, so "orders in 2017" never reuses the 2018 query). Only the SQL is reused;
+     it is **executed again**. Plain Redis has no vector search: vectors are normalised float32
+     in a hash, compared by dot product, at most `CACHE_SEMANTIC_MAX_ENTRIES` per namespace.
+- Cached SQL is **always validated again** (`validate` stage, attempt 0) before it is used. If
+  it no longer validates or fails to execute, the entry is dropped and the question takes the
+  normal path.
+- Invalidation is automatic: `schema_version`, `PROMPT_NAME`, the main model (and, for vectors,
+  the embedding model) are part of every key, so `make catalog` or a prompt bump starts a fresh
+  namespace. Old entries just expire. Bump `KEY_FORMAT` in `cache/keys.py` when an entry's
+  shape changes. Results can be stale for up to `CACHE_TTL_S` after `make load-data`.
+- The cache is global: every user runs SQL as the same `t2s_reader`. If per-user permissions
+  are ever added, the user's role must become part of the keys.
+- Only `answered` results are stored. Keys hold hashes, never question text. Redis errors are
+  misses (stage output `error`), never failures. `Answer.cache` / the API's `cache` field say
+  `exact`, `semantic` or null; the `cache` stage output has the per-level outcome and the best
+  similarity. On a miss, the lookup's embedding is reused by retrieval (not paid twice).
+- Unit tests use fakeredis; `tests/integration/test_cache_e2e.py` uses real Redis **database
+  15** and flushes it. Never use database 15 for anything else.
+
 ## Generated SQL rules (binding for the future components)
 
 - **Generated SQL must never use `SELECT *`** (nor `t.*`). Always name columns: personal-data

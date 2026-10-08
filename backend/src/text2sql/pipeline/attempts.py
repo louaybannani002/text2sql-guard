@@ -1,9 +1,10 @@
 """The repair loop: generate SQL, validate it, execute it; retry fixable failures."""
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from text2sql.executor.errors import ExecutionError
-from text2sql.guard.sql_validator import Rejection, validate
+from text2sql.guard.sql_validator import Rejection
 from text2sql.pipeline.answer import Answer
 from text2sql.pipeline.deps import OrchestratorDeps
 from text2sql.pipeline.feedback import (
@@ -15,6 +16,7 @@ from text2sql.pipeline.feedback import (
 )
 from text2sql.pipeline.generate import FailedAttempt, SqlDraft, generate_sql
 from text2sql.pipeline.run import RunState
+from text2sql.pipeline.stages import execute_stage, validate_stage
 from text2sql.retrieval.context import SchemaContext
 
 if TYPE_CHECKING:
@@ -35,27 +37,9 @@ async def generate_validate_execute(
             message = f"Sorry, I can't answer that with the available data. {draft.explanation}"
             return run.finish("cannot_answer", message.strip())
 
-        last_attempt = attempt == max_attempts
-        async with run.tracer.stage("validate", attempt, {"sql_chars": len(draft.sql)}) as stage:
-            validation = validate(draft.sql, deps.policy)
-            if isinstance(validation, Rejection):
-                stage.output = {
-                    "valid": False,
-                    "rule": validation.rule,
-                    "security": validation.security,
-                }
-                stage.fail(
-                    f"rejected:{validation.rule}",
-                    validation.reason,
-                    retryable=not validation.security and not last_attempt,
-                )
-            else:
-                run.sql = validation.sql
-                stage.output = {
-                    "valid": True,
-                    "tables": list(validation.tables),
-                    "rewrites": list(validation.rewrites),
-                }
+        validation = await validate_stage(
+            run, deps, draft.sql, attempt, retryable=_retry_policy(last=attempt == max_attempts)
+        )
         if isinstance(validation, Rejection):
             if validation.security:
                 return run.finish("rejected", f"I can't run that query: {validation.reason}")
@@ -63,16 +47,7 @@ async def generate_validate_execute(
             continue
 
         try:
-            async with run.tracer.stage(
-                "execute", attempt, {"tables": list(validation.tables)}
-            ) as stage:
-                result = await deps.executor.execute(validation)
-                stage.output = {
-                    "row_count": result.row_count,
-                    "truncated": result.truncated,
-                    "execution_ms": result.execution_ms,
-                    "estimated_cost": result.estimated_cost,
-                }
+            result = await execute_stage(run, deps, validation, attempt)
         except ExecutionError as error:
             if is_security_execution_error(error):
                 return run.finish(
@@ -91,6 +66,11 @@ async def generate_validate_execute(
         "Try rephrasing the question."
     )
     return run.finish("failed", message, detail=f"last error: {last}")
+
+
+def _retry_policy(*, last: bool) -> Callable[[Rejection], bool]:
+    """Rejections the loop will retry: not security ones, and not on the last attempt."""
+    return lambda rejection: not rejection.security and not last
 
 
 async def _generate(

@@ -8,6 +8,7 @@ from text2sql.executor.executor import QueryResult
 from text2sql.pipeline.trace import Trace
 
 type AnswerStatus = Literal["answered", "cannot_answer", "blocked", "rejected", "failed"]
+type CacheHit = Literal["exact", "semantic"]
 
 
 class Answer(BaseModel):
@@ -32,4 +33,9 @@ class Answer(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     result: QueryResult | None = None
     attempts: int = Field(description="SQL generation attempts made (0 if none).")
+    cache: CacheHit | None = Field(
+        default=None,
+        description="exact: SQL and rows from the cache; semantic: a similar question's SQL, "
+        "re-validated and re-executed; None: not served from the cache.",
+    )
     trace: Trace

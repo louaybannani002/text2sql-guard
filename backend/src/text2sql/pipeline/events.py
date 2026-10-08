@@ -5,11 +5,15 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-type StageName = Literal["input_guard", "retrieve", "generate", "validate", "execute"]
+type StageName = Literal["input_guard", "cache", "retrieve", "generate", "validate", "execute"]
 
 
 class StageStarted(BaseModel):
-    """A stage began. ``attempt`` counts SQL generation attempts (1 for one-off stages)."""
+    """A stage began.
+
+    ``attempt`` counts SQL generation attempts: 1 for one-off stages, 0 for validating and
+    executing SQL reused from the cache.
+    """
 
     model_config = ConfigDict(frozen=True)
 

@@ -62,6 +62,11 @@ class Settings(BaseSettings):
 
     # Cache (secret: contains the password)
     redis_url: SecretStr
+    cache_enabled: bool = True
+    cache_ttl_s: int = Field(default=3600, ge=1)  # exact: SQL + rows, which go stale with data
+    cache_semantic_ttl_s: int = Field(default=86_400, ge=1)  # semantic: SQL only, re-executed
+    cache_semantic_threshold: float = Field(default=0.95, gt=0, le=1)  # min cosine similarity
+    cache_semantic_max_entries: int = Field(default=1000, ge=1)  # per namespace, oldest evicted
 
     # LLM
     openai_api_key: SecretStr

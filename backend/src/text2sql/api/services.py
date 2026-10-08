@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 
 from text2sql.api.ratelimit import RateLimiter
 from text2sql.api.store import PgStore, TableSummary
+from text2sql.cache.query_cache import QueryCache
 from text2sql.config.settings import Settings
 from text2sql.db.connection import create_pool
 from text2sql.executor.executor import QueryExecutor
@@ -102,6 +103,7 @@ async def build_services(settings: Settings) -> Services:
         policy=policy,
         executor=executor,
         token_budget=settings.retrieval_token_budget,
+        cache=QueryCache.from_settings(redis, settings) if settings.cache_enabled else None,
     )
 
     async def close() -> None:

@@ -172,3 +172,15 @@ async def test_per_user_rate_limit(client: AsyncClient, auth: dict[str, str]) ->
     assert blocked.json()["error"]["code"] == "rate_limited"
     assert int(blocked.headers["retry-after"]) > 0
     assert blocked.headers["x-ratelimit-remaining"] == "0"
+
+
+@pytest.mark.parametrize("hit", [None, "exact", "semantic"])
+async def test_cache_hit_is_reported(
+    client: AsyncClient, auth: dict[str, str], fakes: Fakes, hit: str | None
+) -> None:
+    async def cached(question: str, sink: EventSink) -> Answer:
+        del sink
+        return make_answer(question, cache=hit)
+
+    fakes.answer = cached
+    assert parse_sse(await _ask(client, auth))[-1][1]["cache"] == hit

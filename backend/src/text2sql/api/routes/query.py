@@ -18,7 +18,7 @@ from text2sql.api.errors import ErrorBody, request_id_of
 from text2sql.api.sse import sse_event
 from text2sql.executor.serialize import JsonValue
 from text2sql.observability.logging import get_logger
-from text2sql.pipeline.answer import Answer
+from text2sql.pipeline.answer import Answer, CacheHit
 from text2sql.pipeline.events import StageEvent
 
 log = get_logger(__name__)
@@ -68,6 +68,9 @@ class AnswerOut(BaseModel):
     row_count: int
     truncated: bool
     attempts: int
+    cache: CacheHit | None = Field(
+        default=None, description="Served from the cache (exact) or from a similar question's SQL."
+    )
     timings: Timings
     tokens: int
     cost_usd: float | None
@@ -89,6 +92,7 @@ def answer_out(query_id: uuid.UUID, answer: Answer) -> AnswerOut:
         row_count=result.row_count if result else 0,
         truncated=result.truncated if result else False,
         attempts=answer.attempts,
+        cache=answer.cache,
         timings=Timings(
             total_ms=trace.total_ms,
             stages=[

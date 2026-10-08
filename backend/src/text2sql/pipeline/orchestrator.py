@@ -3,6 +3,7 @@
 Fixable failures (wrong SQL) go back to the generator with the failed SQL and the error, at most
 ``max_retries`` times. Security rejections are never retried. Every stage is traced and emits
 progress events; technical failures become a ``failed`` Answer instead of an exception.
+Cache hits skip retrieval and generation, never validation (see ``pipeline/cache.py``).
 """
 
 from text2sql.executor.errors import ExecutionError
@@ -10,6 +11,7 @@ from text2sql.guard.input_guard import check_input
 from text2sql.llm import LLMError
 from text2sql.pipeline.answer import Answer
 from text2sql.pipeline.attempts import generate_validate_execute
+from text2sql.pipeline.cache import open_cache, remember, serve_from_cache
 from text2sql.pipeline.deps import Executor, OrchestratorDeps
 from text2sql.pipeline.events import EventSink
 from text2sql.pipeline.feedback import describe_error, user_message
@@ -45,11 +47,17 @@ async def _answer(run: RunState, deps: OrchestratorDeps) -> Answer:
     if not verdict.allowed:
         return run.finish("blocked", verdict.reason)
 
+    session = await open_cache(run, deps)
+    if session is not None and (cached := await serve_from_cache(run, deps, session)):
+        await remember(session, cached)  # a semantic hit becomes an exact entry for this text
+        return cached
+
+    embed = session.embedder(deps.embed) if session else deps.embed
     async with run.tracer.stage(
         "retrieve", 1, {"question_chars": len(run.question), "k": deps.k}
     ) as stage:
         context = await retrieve(
-            run.question, deps.k, db=deps.db, embed=deps.embed, token_budget=deps.token_budget
+            run.question, deps.k, db=deps.db, embed=embed, token_budget=deps.token_budget
         )
         stage.usage.append(context.usage)
         stage.output = {
@@ -57,4 +65,7 @@ async def _answer(run: RunState, deps: OrchestratorDeps) -> Answer:
             "examples": [e.example_id for e in context.examples],
             "tokens": context.tokens,
         }
-    return await generate_validate_execute(run, deps, context)
+    result = await generate_validate_execute(run, deps, context)
+    if session is not None:
+        await remember(session, result)
+    return result

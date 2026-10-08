@@ -10,6 +10,9 @@ import asyncio
 import sys
 from typing import TextIO
 
+from redis.asyncio import Redis
+
+from text2sql.cache.query_cache import QueryCache
 from text2sql.config.settings import Settings, get_settings
 from text2sql.db.connection import create_pool
 from text2sql.executor.executor import QueryExecutor
@@ -48,7 +51,8 @@ def format_answer(result: Answer) -> str:
     stages = ", ".join(f"{s.stage}#{s.attempt} {s.latency_ms:.0f}ms" for s in trace.stages)
     cost = "unknown" if trace.total_cost_usd is None else f"${trace.total_cost_usd:.4f}"
     summary = f"{trace.total_ms:.0f} ms | {trace.total_tokens} tokens | cost {cost}"
-    lines += ["", f"-- attempts: {result.attempts} | {summary}", f"-- stages: {stages}"]
+    cache = f" | cache: {result.cache}" if result.cache else ""
+    lines += ["", f"-- attempts: {result.attempts}{cache} | {summary}", f"-- stages: {stages}"]
     return "\n".join(lines) + "\n"
 
 
@@ -57,6 +61,7 @@ async def run(question: str, settings: Settings, out: TextIO) -> int:
     llm = LLMConfig.from_settings(settings)
     catalog = await create_pool(settings.app_database_url, max_size=3)
     executor = await QueryExecutor.create(settings)
+    redis = Redis.from_url(settings.redis_url.get_secret_value(), socket_timeout=2.0)
     try:
         async with catalog.acquire() as conn:
             policy = await load_policy(conn)
@@ -67,9 +72,11 @@ async def run(question: str, settings: Settings, out: TextIO) -> int:
             policy=policy,
             executor=executor,
             token_budget=settings.retrieval_token_budget,
+            cache=QueryCache.from_settings(redis, settings) if settings.cache_enabled else None,
         )
         result = await answer(question, deps)
     finally:
+        await redis.aclose()
         await executor.close()
         await catalog.close()
     out.write(format_answer(result))

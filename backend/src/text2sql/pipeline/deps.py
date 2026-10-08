@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
+from text2sql.cache.query_cache import QueryCache
 from text2sql.executor.executor import QueryResult
 from text2sql.guard.sql_policy import SqlPolicy
 from text2sql.guard.sql_validator import ValidatedSql
@@ -31,3 +32,4 @@ class OrchestratorDeps:
     token_budget: int
     max_retries: int = 2
     k: int = 5
+    cache: QueryCache | None = None  # None: no caching
