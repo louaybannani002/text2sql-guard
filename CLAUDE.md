@@ -149,6 +149,45 @@ make down        # stop services (`make down-volumes` also wipes data)
 - Labelled cases live in `eval/guard/input_cases.toml` (20 benign, 20 attacks); a live test
   runs all of them. Add every new bypass or false positive found in practice there.
 
+## HTTP API (`text2sql.api`, `make run`)
+
+| Endpoint              | Auth   | Purpose                                                        |
+|-----------------------|--------|----------------------------------------------------------------|
+| `POST /v1/auth/token` | —      | Demo user (`DEMO_USERNAME`/`DEMO_PASSWORD`) → HS256 JWT        |
+| `POST /v1/query`      | Bearer | `{question}` → SSE stream (see below)                          |
+| `GET /v1/schema`      | Bearer | Tables + readable columns, from `app.schema_docs`              |
+| `POST /v1/feedback`   | Bearer | `{query_id, rating 1..5, comment}` → `app.feedback` (upsert)   |
+| `GET /healthz`        | —      | Liveness (no I/O)                                              |
+| `GET /readyz`         | —      | 200 / 503 with `{database, redis}` checks                      |
+
+- **Stateless.** Queries go to `app.queries`, feedback to `app.feedback` (migration 0011), and
+  rate-limit counters to Redis. Never keep request state in process memory. Pools and clients
+  are created in the lifespan (`api/services.build_services`) and closed on shutdown. Routes see
+  only the `Services` dataclass, so tests swap fakes in through `create_app(services_factory=…)`.
+- **SSE events** on `/v1/query`, in order:
+  1. `query` (`{query_id}`);
+  2. the orchestrator events `stage_started` / `stage_done` / `error`;
+  3. one final `answer`, or `server_error` if something unexpected happened.
+  `sql` is sent only when the status is `answered`. `Answer.detail` and the trace's
+  inputs/outputs are internal and are never sent. Messages to the user come from
+  `pipeline/feedback.user_message`, never from raw DB error text.
+- **Auth.** Access tokens live `JWT_ACCESS_TTL_S` (default 900 s) and carry iss, aud, exp, iat
+  and jti. The signing algorithm is pinned on verification. There are no refresh tokens: clients
+  log in again.
+- **Rate limits** use a fixed one-minute window in Redis:
+  - `RATE_LIMIT_PER_MINUTE` per user, on every `/v1/*` data route;
+  - `AUTH_RATE_LIMIT_PER_MINUTE` per client IP on `/v1/auth/token`.
+- **Errors** always have the shape `{"error": {code, message, request_id}}`.
+  - Validation errors name only the fields involved and never echo the input.
+  - Unexpected exceptions become a generic 500. `RequestIdMiddleware` swallows them and logs
+    only the exception type, so neither the client nor the server log sees the message.
+- **Middleware** is pure ASGI only (`BaseHTTPMiddleware` buffers SSE). From the outside in:
+  1. request ID: `X-Request-ID` is kept if safe, otherwise generated;
+  2. CORS: an explicit `CORS_ALLOWED_ORIGINS` list, no credentials;
+  3. body limit: `MAX_REQUEST_BYTES`, checked against the declared size and the bytes actually
+     received.
+- OpenAPI docs are disabled when `APP_ENV=production`.
+
 ## Integration tests
 
 `make test-integration` (marker `integration`; plain `make test` skips them):

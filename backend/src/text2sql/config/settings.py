@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     executor_max_rows: int = Field(default=1000, ge=1, le=100_000)
     executor_pool_size: int = Field(default=5, ge=1, le=50)
 
+    # API
+    jwt_secret: SecretStr = Field(min_length=32)  # HS256 signing key, no default
+    jwt_access_ttl_s: int = Field(default=900, ge=60, le=3600)  # short-lived access tokens
+    demo_username: str = Field(min_length=1)
+    demo_password: SecretStr = Field(min_length=12)
+    rate_limit_per_minute: int = Field(default=20, ge=1)  # per user, all /v1 data endpoints
+    auth_rate_limit_per_minute: int = Field(default=10, ge=1)  # per client IP, token endpoint
+    cors_allowed_origins: list[str] = Field(default_factory=list)  # exact origins, never "*"
+    max_request_bytes: int = Field(default=16_384, ge=1024)
+
     # Cache (secret: contains the password)
     redis_url: SecretStr
 

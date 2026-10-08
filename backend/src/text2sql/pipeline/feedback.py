@@ -47,6 +47,11 @@ _USER_MESSAGES: list[tuple[type[BaseException], str]] = [
     ),
     (QueryTooExpensiveError, "That question needs too heavy a query. Try narrowing it down."),
     (DatabaseUnavailableError, "The database is unavailable right now. Please try again later."),
+    (QueryInvalidError, "The generated query was invalid."),
+    (QueryDataError, "The generated query failed on the data."),
+    (QueryPermissionError, "it needs data you are not allowed to read."),
+    (QueryReadOnlyError, "it tried to modify data."),
+    (ExecutionError, "The query could not be run."),
     (CatalogNotBuiltError, "The data catalog is not ready yet. Please try again later."),
     (LLMOutputValidationError, "The assistant produced an unusable answer. Please try again."),
     (LLMError, "The assistant is unavailable right now. Please try again later."),
@@ -62,7 +67,9 @@ def user_message(error: BaseException) -> str:
 
 
 def describe_error(error: BaseException) -> tuple[str, str, bool]:
-    """(error kind, user message, retryable) for stage error events."""
+    """(error kind, client-safe message, retryable) for stage error events.
+
+    The message never contains the raw database or provider error text.
+    """
     retryable = isinstance(error, ExecutionError) and is_fixable_execution_error(error)
-    message = str(error) if isinstance(error, ExecutionError) else user_message(error)
-    return type(error).__name__, message, retryable
+    return type(error).__name__, user_message(error), retryable

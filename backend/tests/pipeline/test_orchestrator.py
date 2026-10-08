@@ -221,7 +221,9 @@ async def test_gives_up_after_two_retries(fake_llm: Callable[..., FakeCompletion
     assert (result.status, result.attempts) == ("failed", 3)
     assert len(completion.calls) == 4  # guard + 3 generations
     assert "after 3 attempts" in result.message
-    assert "Unknown column: nope" in result.message
+    assert "Unknown column" not in result.message  # internal detail stays internal
+    assert result.detail is not None
+    assert "Unknown column: nope" in result.detail
 
 
 # ---------------------------------------------------------------- no retries

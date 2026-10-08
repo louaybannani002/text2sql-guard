@@ -12,6 +12,7 @@ dependencies = [
     "openai>=2.54.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    "pyjwt>=2.15.1",
     "redis>=5.2",
     "sqlglot>=30.21.0",
     "structlog>=24.4",

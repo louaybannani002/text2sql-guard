@@ -23,6 +23,10 @@ class Answer(BaseModel):
     question: str
     status: AnswerStatus
     message: str = Field(description="Plain-language text for the user.")
+    detail: str | None = Field(
+        default=None,
+        description="Internal diagnostic (raw validator/database error). Never send to clients.",
+    )
     sql: str | None = Field(description="Executed SQL, or the last attempt if none ran.")
     explanation: str | None = None
     assumptions: list[str] = Field(default_factory=list)

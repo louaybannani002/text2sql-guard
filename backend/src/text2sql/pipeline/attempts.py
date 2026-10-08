@@ -75,9 +75,11 @@ async def generate_validate_execute(
                 }
         except ExecutionError as error:
             if is_security_execution_error(error):
-                return run.finish("rejected", f"I can't run that query: {error}")
+                return run.finish(
+                    "rejected", f"I can't run that query: {user_message(error)}", detail=str(error)
+                )
             if not is_fixable_execution_error(error):
-                return run.finish("failed", user_message(error))
+                return run.finish("failed", user_message(error), detail=str(error))
             # The model sees its own SQL, not the normalised one (formatting, added LIMIT).
             failures.append(FailedAttempt(draft.sql, execution_feedback(error)))
             continue
@@ -85,9 +87,10 @@ async def generate_validate_execute(
 
     last = failures[-1].error if failures else "unknown error"
     message = (
-        f"I couldn't produce a working query after {run.attempts} attempts. Last error: {last}"
+        f"I couldn't produce a working query after {run.attempts} attempts. "
+        "Try rephrasing the question."
     )
-    return run.finish("failed", message)
+    return run.finish("failed", message, detail=f"last error: {last}")
 
 
 async def _generate(

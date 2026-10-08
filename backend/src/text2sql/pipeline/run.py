@@ -25,14 +25,23 @@ class RunState:
         self.sql: str | None = None
 
     def finish(
-        self, status: AnswerStatus, message: str, result: QueryResult | None = None
+        self,
+        status: AnswerStatus,
+        message: str,
+        result: QueryResult | None = None,
+        *,
+        detail: str | None = None,
     ) -> Answer:
-        """Build the final ``Answer`` (with the full trace) and log a one-line summary."""
+        """Build the final ``Answer`` (with the full trace) and log a one-line summary.
+
+        ``message`` is shown to users; ``detail`` (raw validator/database errors) is not.
+        """
         draft = self.draft
         answer = Answer(
             question=self.question,
             status=status,
             message=message,
+            detail=detail,
             sql=self.sql,
             explanation=draft.explanation if draft else None,
             assumptions=list(draft.assumptions) if draft else [],

@@ -32,6 +32,8 @@ def _cell(value: object) -> str:
 def format_answer(result: Answer) -> str:
     """Human-readable answer: message, SQL, result preview and trace summary."""
     lines = [f"[{result.status}] {result.message}"]
+    if result.detail:  # operator tool: internal diagnostics are fine here
+        lines.append(f"detail: {result.detail}")
     lines += [f"assumption: {a}" for a in result.assumptions]
     if result.sql and result.status in {"answered", "failed"}:
         lines += ["", result.sql.strip() + ";"]
