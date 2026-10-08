@@ -42,6 +42,7 @@ class Rejection:
     rule: str
     reason: str
     rules_checked: list[str]  # rules that passed before this one failed
+    security: bool = False  # True: an attempt at something forbidden; never ask for a fix
 
 
 # ---------------------------------------------------------------- parsing (rule 1)
@@ -58,7 +59,7 @@ def _parse(sql: str) -> exp.Expr | Rejection:
         return Rejection("parse", "The query is not valid PostgreSQL.", [])
     if len(statements) != 1:
         reason = f"Expected exactly one statement, got {len(statements)}."
-        return Rejection("single_statement", reason, ["parse"])
+        return Rejection("single_statement", reason, ["parse"], security=True)  # stacking
     # Postgres folds unquoted identifiers to lower case; quoted ones stay as written.
     return normalize_identifiers(statements[0], dialect=DIALECT)
 
@@ -96,11 +97,16 @@ def validate(sql: str, policy: SqlPolicy) -> ValidatedSql | Rejection:
         return parsed
     tree, passed = parsed, ["parse", "single_statement"]
     for name, check in RULES:
-        reason = check(tree, policy)
-        if reason is not None:
+        violation = check(tree, policy)
+        if violation is not None:
             # Never log the SQL itself: it is model output (CLAUDE.md).
-            log.warning("sql_rejected", rule=name, rules_passed=passed)
-            return Rejection(rule=name, reason=reason, rules_checked=passed)
+            log.warning("sql_rejected", rule=name, security=violation.security, rules_passed=passed)
+            return Rejection(
+                rule=name,
+                reason=violation.reason,
+                rules_checked=passed,
+                security=violation.security,
+            )
         passed.append(name)
     rewrites = _enforce_limit(tree, policy.max_rows)
     passed.append("limit")

@@ -1,7 +1,8 @@
-"""``python -m text2sql.pipeline "question"``: print the validated SQL (``make ask Q="..."``).
+"""``python -m text2sql.pipeline "question"`` (``make ask Q="..."``): answer one question.
 
-The SQL goes to stdout, so it can be piped; a short header of SQL comments explains it.
-Nothing is executed.
+Runs the whole pipeline, including execution as ``t2s_reader``, and prints the SQL, a result
+preview and a one-line trace. Exit codes: 0 answered, 1 failed, 2 cannot answer,
+3 blocked by the input guard, 4 rejected by a security check.
 """
 
 import argparse
@@ -11,86 +12,70 @@ from typing import TextIO
 
 from text2sql.config.settings import Settings, get_settings
 from text2sql.db.connection import create_pool
+from text2sql.executor.executor import QueryExecutor
 from text2sql.guard.sql_policy import load_policy
-from text2sql.guard.sql_validator import Rejection
-from text2sql.llm import LLMConfig, LLMError
+from text2sql.llm import LLMConfig
+from text2sql.llm.embeddings import embed_texts
 from text2sql.observability.logging import configure_logging
-from text2sql.pipeline.ask import AskDependencies, AskResult, ask
-from text2sql.retrieval.retriever import CatalogNotBuiltError
+from text2sql.pipeline.answer import Answer
+from text2sql.pipeline.orchestrator import OrchestratorDeps, answer
 
-EXIT_FAILED = 1
-EXIT_UNANSWERABLE = 2
-EXIT_BLOCKED = 3
-EXIT_REJECTED = 4
+EXIT_CODES = {"answered": 0, "failed": 1, "cannot_answer": 2, "blocked": 3, "rejected": 4}
+PREVIEW_ROWS = 20
 
 
-def _commented(sql: str) -> list[str]:
-    return [f"--   {line}" for line in sql.strip().splitlines()]
+def _cell(value: object) -> str:
+    text = "NULL" if value is None else str(value)
+    return text if len(text) <= 40 else text[:39] + "…"  # noqa: PLR2004
 
 
-def format_result(result: AskResult) -> str:
-    """The validated SQL with an explanatory comment header (or why there is no SQL)."""
-    draft, context, validation = result.draft, result.context, result.validation
-    cost = "unknown" if result.cost_usd is None else f"${result.cost_usd:.4f}"
-    if draft is None or context is None:
-        verdict = result.verdict
-        lines = [f"-- BLOCKED ({verdict.category}): {verdict.reason}", f"-- cost: {cost}"]
-        return "\n".join(lines) + "\n"
-    header = [
-        f"-- {draft.explanation}",
-        *(f"-- assumption: {a}" for a in draft.assumptions),
-        (
-            f"-- confidence: {draft.confidence:.2f} | schema context: "
-            f"{', '.join(context.relations)} ({context.tokens} tokens) | cost: {cost}"
-        ),
-    ]
-    if validation is None:
-        return "\n".join(["-- NOT ANSWERABLE from the available data.", *header]) + "\n"
-    if isinstance(validation, Rejection):
-        lines = [
-            f"-- REJECTED by the SQL validator ({validation.rule}): {validation.reason}",
-            *header,
-            "-- draft (not runnable):",
-            *_commented(draft.sql),
-        ]
-        return "\n".join(lines) + "\n"
-    rewrites = [f"-- validator: {r}" for r in validation.rewrites]
-    return "\n".join([*header, *rewrites, validation.sql + ";"]) + "\n"
+def format_answer(result: Answer) -> str:
+    """Human-readable answer: message, SQL, result preview and trace summary."""
+    lines = [f"[{result.status}] {result.message}"]
+    lines += [f"assumption: {a}" for a in result.assumptions]
+    if result.sql and result.status in {"answered", "failed"}:
+        lines += ["", result.sql.strip() + ";"]
+    if result.result is not None:
+        data = result.result
+        lines += ["", " | ".join(c.name for c in data.columns)]
+        lines += [" | ".join(_cell(v) for v in row) for row in data.rows[:PREVIEW_ROWS]]
+        shown = min(PREVIEW_ROWS, data.row_count)
+        more = " (more rows exist; result capped)" if data.truncated else ""
+        lines.append(f"({shown} of {data.row_count} rows shown{more})")
+    trace = result.trace
+    stages = ", ".join(f"{s.stage}#{s.attempt} {s.latency_ms:.0f}ms" for s in trace.stages)
+    cost = "unknown" if trace.total_cost_usd is None else f"${trace.total_cost_usd:.4f}"
+    summary = f"{trace.total_ms:.0f} ms | {trace.total_tokens} tokens | cost {cost}"
+    lines += ["", f"-- attempts: {result.attempts} | {summary}", f"-- stages: {stages}"]
+    return "\n".join(lines) + "\n"
 
 
-def exit_code(result: AskResult) -> int:
-    """0 (SQL), 2 (not answerable), 3 (blocked by the input guard), 4 (rejected SQL)."""
-    if result.draft is None:
-        return EXIT_BLOCKED
-    if result.validation is None:
-        return EXIT_UNANSWERABLE
-    return EXIT_REJECTED if isinstance(result.validation, Rejection) else 0
-
-
-async def run(question: str, settings: Settings, out: TextIO, err: TextIO) -> int:
+async def run(question: str, settings: Settings, out: TextIO) -> int:
     """Answer one question; returns the process exit code."""
-    pool = await create_pool(settings.app_database_url, max_size=3)
+    llm = LLMConfig.from_settings(settings)
+    catalog = await create_pool(settings.app_database_url, max_size=3)
+    executor = await QueryExecutor.create(settings)
     try:
-        async with pool.acquire() as conn:
+        async with catalog.acquire() as conn:
             policy = await load_policy(conn)
-        deps = AskDependencies(
-            db=pool,
-            llm=LLMConfig.from_settings(settings),
+        deps = OrchestratorDeps(
+            db=catalog,
+            llm=llm,
+            embed=lambda texts: embed_texts(texts, config=llm),
             policy=policy,
+            executor=executor,
             token_budget=settings.retrieval_token_budget,
         )
-        result = await ask(question, deps)
-    except (CatalogNotBuiltError, LLMError) as exc:
-        err.write(f"error: {exc}\n")
-        return EXIT_FAILED
+        result = await answer(question, deps)
     finally:
-        await pool.close()
-    out.write(format_result(result))
-    return exit_code(result)
+        await executor.close()
+        await catalog.close()
+    out.write(format_answer(result))
+    return EXIT_CODES[result.status]
 
 
 def main() -> None:
-    """Exit 0 (SQL), 1 (error), 2 (not answerable), 3 (blocked) or 4 (SQL rejected)."""
+    """Parse arguments, answer, exit with the status code (see module docstring)."""
     parser = argparse.ArgumentParser(prog="python -m text2sql.pipeline")
     parser.add_argument("question", help="business question in plain language")
     parser.add_argument("--verbose", action="store_true", help="show structured logs")
@@ -99,9 +84,9 @@ def main() -> None:
         parser.error("the question is empty")
 
     settings = get_settings()
-    # Logs share stdout with the SQL, so keep them quiet unless asked.
+    # Logs share stdout with the answer, so keep them quiet unless asked.
     configure_logging("INFO" if args.verbose else "ERROR", json=settings.app_env != "development")
-    sys.exit(asyncio.run(run(args.question, settings, sys.stdout, sys.stderr)))
+    sys.exit(asyncio.run(run(args.question, settings, sys.stdout)))
 
 
 if __name__ == "__main__":

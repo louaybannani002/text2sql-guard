@@ -1,6 +1,7 @@
 """Question → SQL draft, via the ``main`` model and the versioned ``generate`` prompt."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -12,7 +13,7 @@ from text2sql.retrieval.context import FewShotExample
 
 log = get_logger(__name__)
 
-PROMPT_NAME = "generate_v1"
+PROMPT_NAME = "generate_v2"
 
 
 class SqlDraft(BaseModel):
@@ -51,6 +52,14 @@ class SqlDraft(BaseModel):
         return self
 
 
+@dataclass(frozen=True, slots=True)
+class FailedAttempt:
+    """SQL that was tried for a question, and the (validator or database) error it hit."""
+
+    sql: str
+    error: str
+
+
 def render_examples(examples: Sequence[FewShotExample]) -> str:
     """Format few-shot examples for the prompt."""
     if not examples:
@@ -61,14 +70,28 @@ def render_examples(examples: Sequence[FewShotExample]) -> str:
     )
 
 
+def render_previous_attempts(attempts: Sequence[FailedAttempt]) -> str:
+    """Format earlier failed attempts (oldest first) for the prompt."""
+    if not attempts:
+        return "(none)"
+    return "\n\n".join(
+        f"Attempt {i}:\n```sql\n{attempt.sql.strip()}\n```\nFailed: {attempt.error}"
+        for i, attempt in enumerate(attempts, start=1)
+    )
+
+
 def build_messages(
-    question: str, schema_context: str, examples: Sequence[FewShotExample]
+    question: str,
+    schema_context: str,
+    examples: Sequence[FewShotExample],
+    previous_attempts: Sequence[FailedAttempt] = (),
 ) -> list[Message]:
     """System + user messages for the ``generate`` prompt."""
     prompt = load_prompt(PROMPT_NAME)
     user = prompt.render_user(
         schema_context=schema_context.strip(),
         examples=render_examples(examples),
+        previous_attempts=render_previous_attempts(previous_attempts),
         question=question.strip(),
     )
     return [{"role": "system", "content": prompt.system}, {"role": "user", "content": user}]
@@ -79,6 +102,7 @@ async def generate_sql(
     schema_context: str,
     examples: Sequence[FewShotExample],
     *,
+    previous_attempts: Sequence[FailedAttempt] = (),
     config: LLMConfig | None = None,
 ) -> LLMResult[SqlDraft]:
     """Draft SQL answering ``question``, using only what ``schema_context`` describes.
@@ -88,6 +112,7 @@ async def generate_sql(
         schema_context: Tables, views and readable columns with their descriptions, as
             rendered by the schema catalog.
         examples: Few-shot question/SQL pairs; may be empty.
+        previous_attempts: Earlier SQL for this question and why it failed, for a repair.
         config: LLM configuration override (tests).
 
     Returns:
@@ -97,7 +122,10 @@ async def generate_sql(
         LLMError: Any failure of the model call, including output that does not fit SqlDraft.
     """
     result = await generate_structured(
-        build_messages(question, schema_context, examples), SqlDraft, "main", config=config
+        build_messages(question, schema_context, examples, previous_attempts),
+        SqlDraft,
+        "main",
+        config=config,
     )
     draft = result.output
     log.info(
@@ -108,5 +136,6 @@ async def generate_sql(
         tables_used=draft.tables_used,
         assumptions=len(draft.assumptions),
         examples=len(examples),
+        repair_of=len(previous_attempts),
     )
     return result

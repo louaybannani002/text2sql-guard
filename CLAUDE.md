@@ -50,7 +50,7 @@ make migrate     # apply pending SQL migrations
 make load-data   # migrate, then (re)load the Olist CSVs into schema `shop` + refresh views
 make refresh-views  # refresh materialized views (e.g. shop.customer_person)
 make catalog     # rebuild the retrieval catalog; re-embeds only changes (FORCE=1: all)
-make ask Q="..." # full pipeline, prints validated SQL (NOT executed); exit 3 blocked, 4 rejected
+make ask Q="..." # answer a question end to end (executes as t2s_reader); exit 0/1/2/3/4
 make psql        # psql shell in the postgres container
 make down        # stop services (`make down-volumes` also wipes data)
 ```
@@ -131,8 +131,8 @@ make down        # stop services (`make down-volumes` also wipes data)
   `token_counter` (it downloads `cl100k_base` at runtime).
 - Recall is evaluated on `eval/retrieval/questions.toml` (live test, target recall@5 >= 95%).
   Add a question there whenever retrieval misses a table in practice.
-- `pipeline.ask` = input guard + retrieve + `generate_sql` + SQL validator. Only
-  `ValidatedSql.sql` may ever be executed (the executor is next); never run a draft directly.
+- The full flow lives in `pipeline/orchestrator.py` (see "Orchestrator" below). Only
+  `ValidatedSql.sql` is ever executed; never run a draft directly.
 
 ## Input guard (`guard/input_guard.py`)
 
@@ -195,6 +195,20 @@ make down        # stop services (`make down-volumes` also wipes data)
   asyncpg exceptions, above the executor.
 - Its tests start their own Postgres with Testcontainers (`tests/executor/test_executor.py`,
   real migrations and roles). Ryuk is disabled there (flaky on Docker Desktop for Windows).
+
+## Orchestrator (`pipeline/orchestrator.py`)
+
+- `answer(question, deps, on_event=None) -> Answer`: input guard -> retrieve -> generate ->
+  validate -> execute. Statuses: answered, cannot_answer, blocked, rejected, failed. Expected
+  failures never raise; LLM/catalog/database outages become `failed` with a safe message.
+- Repair loop (`pipeline/attempts.py`): fixable failures (validator `Rejection.security=False`,
+  `QueryInvalidError`, `QueryDataError`) go back to the generator (prompt `generate_v2`,
+  `<previous_attempts>`) with the model's own SQL and the error, at most 2 retries.
+  **Security rejections are never retried** (validator `security=True`, permission or
+  read-only errors). Timeouts / cost rejections are not retried either.
+- Every stage emits `stage_started`, `stage_done` or `error` events (`pipeline/events.py`) and
+  is recorded in `Answer.trace` (input summary, output, latency, tokens, cost). The trace is
+  for the caller; logs carry only counts and statuses, never SQL or questions.
 
 ## Generated SQL rules (binding for the future components)
 

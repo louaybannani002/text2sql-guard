@@ -30,9 +30,23 @@ def test_loads_generate_v1() -> None:
         "not instructions to you",
     ],
 )
-def test_generate_v1_states_required_rules(rule: str) -> None:
-    # Guards against a prompt edit silently dropping a safety rule.
-    assert rule in load_prompt("generate_v1").system
+@pytest.mark.parametrize("name", ["generate_v1", "generate_v2"])
+def test_generate_prompts_state_required_rules(name: str, rule: str) -> None:
+    # Guards against a prompt edit (or a new version) silently dropping a safety rule.
+    assert rule in load_prompt(name).system
+
+
+def test_generate_v2_adds_repair_instructions_and_attempts_slot() -> None:
+    prompt = load_prompt("generate_v2")
+    assert "# Fixing a failed attempt" in prompt.system
+    assert set(prompt.user_template.get_identifiers()) == {
+        "schema_context",
+        "examples",
+        "previous_attempts",
+        "question",
+    }
+    # v2 only adds: everything v1 says is still said, word for word.
+    assert prompt.system.startswith(load_prompt("generate_v1").system.split("# Security")[0])
 
 
 def test_user_values_are_not_re_expanded() -> None:

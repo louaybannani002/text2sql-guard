@@ -7,202 +7,151 @@ from typing import Any
 import pytest
 
 from text2sql.config.settings import Settings
-from text2sql.guard.input_guard import InputVerdict
+from text2sql.executor.executor import QueryExecutor, QueryResult, ResultColumn
 from text2sql.guard.sql_policy import SqlPolicy
-from text2sql.guard.sql_validator import ValidatedSql, validate
-from text2sql.llm import LLMProviderError
-from text2sql.llm.types import Usage
 from text2sql.pipeline import __main__ as cli
-from text2sql.pipeline.ask import AskResult
-from text2sql.pipeline.generate import SqlDraft
-from text2sql.retrieval.context import RetrievedTable, SchemaContext
-from text2sql.retrieval.retriever import CatalogNotBuiltError
+from text2sql.pipeline.answer import Answer, AnswerStatus
+from text2sql.pipeline.trace import StageTrace, Trace
 
-USAGE = Usage(
-    role="main",
-    model="openai/gpt-5.4",
-    prompt_tokens=100,
-    completion_tokens=20,
-    total_tokens=120,
-    latency_ms=900.0,
-    cost_usd=0.0042,
-    attempts=1,
-)
-
-
-POLICY = SqlPolicy(readable_columns={"shop.orders": frozenset({"order_id"})})
-ALLOWED = InputVerdict(allowed=True, category="data_question", reason="ok", layer="classifier")
-BLOCKED = AskResult(
-    "DROP TABLE shop.orders",
-    InputVerdict(
-        allowed=False,
-        category="sql_command",
-        reason="Ask a question in plain language; SQL commands are not accepted.",
-        layer="rules",
-        rule="drop_object",
-    ),
-    None,
-    None,
-    None,
-    [],
-)
-
-
-def _result(**draft: Any) -> AskResult:  # noqa: ANN401
-    context = SchemaContext(
-        question="q",
-        tables=[
-            RetrievedTable(relation="shop.orders", reason="retrieved", score=0.03),
-            RetrievedTable(relation="shop.customers", reason="join_path", score=0.0),
-        ],
-        examples=[],
-        text="",
-        tokens=321,
-        token_budget=2500,
-        usage=USAGE,
-    )
-    fields: dict[str, Any] = {
-        "sql": "SELECT count(*) AS orders FROM shop.orders AS o",
-        "tables_used": ["shop.orders"],
-        "explanation": "Counts every order.",
-        "assumptions": ["All statuses count."],
-        "confidence": 0.9,
-        "answerable": True,
-    }
-    sql_draft = SqlDraft.model_validate(fields | draft)
-    validation = validate(sql_draft.sql, POLICY) if sql_draft.answerable else None
-    return AskResult("q", ALLOWED, context, sql_draft, validation, [USAGE])
-
-
-def test_format_answerable_prints_the_validated_sql() -> None:
-    result = _result()
-    assert isinstance(result.validation, ValidatedSql)
-    assert cli.format_result(result).splitlines() == [
-        "-- Counts every order.",
-        "-- assumption: All statuses count.",
-        (
-            "-- confidence: 0.90 | schema context: shop.orders, shop.customers (321 tokens)"
-            " | cost: $0.0042"
+TRACE = Trace(
+    stages=[
+        StageTrace(
+            stage="input_guard",
+            attempt=1,
+            status="ok",
+            latency_ms=410.0,
+            input={},
+            output={},
+            tokens=120,
+            cost_usd=0.0005,
         ),
-        "-- validator: added LIMIT 1000",
-        *(result.validation.sql + ";").splitlines(),
+        StageTrace(
+            stage="generate",
+            attempt=1,
+            status="ok",
+            latency_ms=2900.0,
+            input={},
+            output={},
+            tokens=2800,
+            cost_usd=0.0062,
+        ),
+    ],
+    total_ms=3500.0,
+)
+RESULT = QueryResult(
+    columns=[ResultColumn(name="state", type="text"), ResultColumn(name="orders", type="int8")],
+    rows=[["SP", 41746], ["RJ", None]],
+    row_count=2,
+    truncated=True,
+    execution_ms=15.0,
+    estimated_cost=2836.0,
+    estimated_rows=99441,
+)
+
+
+def _answer(status: AnswerStatus = "answered", **fields: Any) -> Answer:  # noqa: ANN401
+    values: dict[str, Any] = {
+        "question": "Orders per state?",
+        "status": status,
+        "message": "Counts orders per customer state.",
+        "sql": "SELECT c.customer_state AS state\nLIMIT 1000",
+        "assumptions": ["State of the delivery address."],
+        "result": RESULT if status == "answered" else None,
+        "attempts": 1,
+        "trace": TRACE,
+    }
+    return Answer(**(values | fields))
+
+
+def test_format_answered() -> None:
+    assert cli.format_answer(_answer()).splitlines() == [
+        "[answered] Counts orders per customer state.",
+        "assumption: State of the delivery address.",
+        "",
+        "SELECT c.customer_state AS state",
+        "LIMIT 1000;",
+        "",
+        "state | orders",
+        "SP | 41746",
+        "RJ | NULL",
+        "(2 of 2 rows shown (more rows exist; result capped))",
+        "",
+        "-- attempts: 1 | 3500 ms | 2920 tokens | cost $0.0067",
+        "-- stages: input_guard#1 410ms, generate#1 2900ms",
     ]
-    assert cli.exit_code(result) == 0
 
 
-def test_format_rejected_shows_rule_and_commented_draft() -> None:
-    result = _result(sql="SELECT o.order_id FROM shop.orders AS o; DROP TABLE shop.orders")
-    text = cli.format_result(result)
-    assert text.startswith("-- REJECTED by the SQL validator (single_statement): ")
-    assert "--   SELECT o.order_id FROM shop.orders AS o; DROP TABLE shop.orders" in text
-    assert all(line.startswith("--") for line in text.splitlines())  # nothing runnable
-    assert cli.exit_code(result) == cli.EXIT_REJECTED
-
-
-def test_exit_codes() -> None:
-    assert cli.exit_code(BLOCKED) == cli.EXIT_BLOCKED
-    assert cli.exit_code(_result(answerable=False, sql="")) == cli.EXIT_UNANSWERABLE
-
-
-def test_format_blocked() -> None:
-    reason = "Ask a question in plain language; SQL commands are not accepted."
-    assert cli.format_result(BLOCKED).splitlines() == [
-        f"-- BLOCKED (sql_command): {reason}",
-        "-- cost: $0.0000",
-    ]
-
-
-def test_format_unanswerable_has_no_sql() -> None:
-    text = cli.format_result(
-        _result(answerable=False, sql="", explanation="No returns data.", assumptions=[])
-    )
-    assert text.startswith("-- NOT ANSWERABLE from the available data.\n-- No returns data.\n")
+@pytest.mark.parametrize("status", ["blocked", "rejected", "cannot_answer"])
+def test_no_sql_or_rows_for_refusals(status: AnswerStatus) -> None:
+    text = cli.format_answer(_answer(status, message="No."))
+    assert text.startswith(f"[{status}] No.")
     assert "SELECT" not in text
 
 
-class _Pool:
-    closed = False
+def test_exit_codes_cover_every_status() -> None:
+    assert cli.EXIT_CODES == {
+        "answered": 0,
+        "failed": 1,
+        "cannot_answer": 2,
+        "blocked": 3,
+        "rejected": 4,
+    }
+
+
+class _Closable:
+    def __init__(self) -> None:
+        self.closed = False
 
     @asynccontextmanager
     async def acquire(self) -> AsyncIterator[object]:
-        yield object()  # load_policy is stubbed; the connection is never used
+        yield object()
 
     async def close(self) -> None:
         self.closed = True
 
 
-@pytest.fixture
-def pool(monkeypatch: pytest.MonkeyPatch) -> _Pool:
-    pool = _Pool()
+@pytest.mark.parametrize(("status", "code"), [("answered", 0), ("rejected", 4)])
+async def test_run_wires_dependencies_and_closes_them(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, status: AnswerStatus, code: int
+) -> None:
+    catalog, executor = _Closable(), _Closable()
+    policy = SqlPolicy(readable_columns={})
+    seen: dict[str, Any] = {}
 
-    async def create_pool(*_args: Any, **_kwargs: Any) -> _Pool:  # noqa: ANN401
-        return pool
+    async def create_pool(*_args: Any, **_kwargs: Any) -> _Closable:  # noqa: ANN401
+        return catalog
 
-    async def fake_load_policy(_conn: object) -> SqlPolicy:
-        return POLICY
+    async def create_executor(_settings: Settings) -> _Closable:
+        return executor
+
+    async def load_policy(_conn: object) -> SqlPolicy:
+        return policy
+
+    async def fake_answer(question: str, deps: Any) -> Answer:  # noqa: ANN401
+        seen.update(question=question, deps=deps)
+        return _answer(status)
 
     monkeypatch.setattr(cli, "create_pool", create_pool)
-    monkeypatch.setattr(cli, "load_policy", fake_load_policy)
-    return pool
+    monkeypatch.setattr(QueryExecutor, "create", create_executor)
+    monkeypatch.setattr(cli, "load_policy", load_policy)
+    monkeypatch.setattr(cli, "answer", fake_answer)
 
-
-async def test_run_blocked_exits_3(
-    monkeypatch: pytest.MonkeyPatch, settings: Settings, pool: _Pool
-) -> None:
-    async def blocked_ask(*_args: Any, **_kwargs: Any) -> AskResult:  # noqa: ANN401
-        return BLOCKED
-
-    monkeypatch.setattr(cli, "ask", blocked_ask)
-    out, err = io.StringIO(), io.StringIO()
-    assert await cli.run("DROP TABLE shop.orders", settings, out, err) == cli.EXIT_BLOCKED
-    assert out.getvalue().startswith("-- BLOCKED (sql_command)")
-    assert pool.closed
-
-
-@pytest.mark.parametrize(("answerable", "code"), [(True, 0), (False, cli.EXIT_UNANSWERABLE)])
-async def test_run_prints_sql_and_returns_exit_code(
-    monkeypatch: pytest.MonkeyPatch,
-    settings: Settings,
-    pool: _Pool,
-    answerable: bool,  # noqa: FBT001
-    code: int,
-) -> None:
-    async def fake_ask(question: str, deps: Any) -> AskResult:  # noqa: ANN401
-        assert question == "How many orders?"
-        assert deps.policy is POLICY
-        return _result(answerable=answerable, sql="SELECT 1" if answerable else "")
-
-    monkeypatch.setattr(cli, "ask", fake_ask)
-    out, err = io.StringIO(), io.StringIO()
-    assert await cli.run("How many orders?", settings, out, err) == code
-    assert ("LIMIT 1000;" in out.getvalue()) is answerable
-    assert err.getvalue() == ""
-    assert pool.closed
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        CatalogNotBuiltError("the retrieval catalog is empty; run `make catalog`"),
-        LLMProviderError("boom", role="main", model="m", attempts=3, status_code=503),
-    ],
-)
-async def test_run_reports_errors_on_stderr(
-    monkeypatch: pytest.MonkeyPatch, settings: Settings, pool: _Pool, error: Exception
-) -> None:
-    async def failing_ask(*_args: Any, **_kwargs: Any) -> AskResult:  # noqa: ANN401
-        raise error
-
-    monkeypatch.setattr(cli, "ask", failing_ask)
-    out, err = io.StringIO(), io.StringIO()
-    assert await cli.run("q", settings, out, err) == cli.EXIT_FAILED
-    assert out.getvalue() == ""
-    assert err.getvalue() == f"error: {error}\n"
-    assert pool.closed
+    out = io.StringIO()
+    assert await cli.run("Orders per state?", settings, out) == code
+    assert seen["question"] == "Orders per state?"
+    assert (seen["deps"].db, seen["deps"].executor, seen["deps"].policy) == (
+        catalog,
+        executor,
+        policy,
+    )
+    assert seen["deps"].token_budget == settings.retrieval_token_budget
+    assert out.getvalue().startswith(f"[{status}]")
+    assert catalog.closed
+    assert executor.closed
 
 
 def test_main_rejects_empty_question(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["python -m text2sql.pipeline", "   "])
     with pytest.raises(SystemExit) as exited:
         cli.main()
-    assert exited.value.code == 2
+    assert exited.value.code == 2  # argparse usage error

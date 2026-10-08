@@ -8,6 +8,8 @@ from tests.support.fake_llm import FakeCompletion, llm_config, model_response
 from text2sql.llm import LLMOutputValidationError
 from text2sql.llm.prompts import load_prompt
 from text2sql.pipeline.generate import (
+    PROMPT_NAME,
+    FailedAttempt,
     SqlDraft,
     build_messages,
     generate_sql,
@@ -60,7 +62,7 @@ async def test_calls_main_model_with_prompt_and_schema(
     assert call["model"] == "openai/gpt-5.4"
     assert call["response_format"] is SqlDraft
     system, user = call["messages"]
-    assert system == {"role": "system", "content": load_prompt("generate_v1").system}
+    assert system == {"role": "system", "content": load_prompt(PROMPT_NAME).system}
     assert user["role"] == "user"
     assert f"<schema>\n{SCHEMA}\n</schema>" in user["content"]
     assert f"<question>\n{QUESTION}\n</question>" in user["content"]
@@ -137,3 +139,23 @@ def test_build_messages_keeps_question_verbatim_inside_tags() -> None:
     _, user = build_messages(hostile, SCHEMA, [])
     assert f"<question>\n{hostile}\n</question>" in user["content"]
     assert "(no examples)" in user["content"]  # $examples in the question was not expanded
+
+
+def test_first_attempt_has_no_previous_attempts() -> None:
+    _, user = build_messages(QUESTION, SCHEMA, [])
+    assert "<previous_attempts>\n(none)\n</previous_attempts>" in user["content"]
+
+
+async def test_repair_sends_failed_sql_and_error(fake_llm: Callable[..., FakeCompletion]) -> None:
+    completion = fake_llm(model_response(_draft()))
+    failed = FailedAttempt(
+        sql="SELECT o.status FROM shop.orders AS o",
+        error="validator (columns): Unknown column shop.orders.status.",
+    )
+    await generate_sql(QUESTION, SCHEMA, [], previous_attempts=[failed], config=llm_config())
+
+    user = completion.calls[0]["messages"][1]["content"]
+    assert "Attempt 1:\n```sql\nSELECT o.status FROM shop.orders AS o\n```" in user
+    assert "Failed: validator (columns): Unknown column shop.orders.status." in user
+    # The question stays last, after the attempts.
+    assert user.index("<previous_attempts>") < user.index("<question>")
