@@ -4,8 +4,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AnyHttpUrl, Field, SecretStr
+from pydantic import AnyHttpUrl, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from text2sql.config.hosts import with_host
 
 type AppEnv = Literal["development", "test", "staging", "production"]
 type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -36,6 +38,10 @@ class Settings(BaseSettings):
     # Least-privilege roles (migration 0004); their passwords are synced from these URLs.
     reader_database_url: SecretStr  # t2s_reader: runs LLM-generated SQL
     app_database_url: SecretStr  # t2s_app: read/write on schema app
+    # Docker compose only: "postgres:5432" / "redis:6379" replace the host in the URLs above
+    # and in REDIS_URL, so the same .env works on the host and in containers.
+    database_host: str | None = None
+    redis_host: str | None = None
     migrations_dir: Path = Path("db/migrations")
     raw_data_dir: Path = Path("data/raw")
     examples_seed_path: Path = Path("db/seeds/examples.toml")
@@ -83,6 +89,25 @@ class Settings(BaseSettings):
     langfuse_public_key: SecretStr
     langfuse_secret_key: SecretStr
     langfuse_host: AnyHttpUrl
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_host_overrides(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        overrides = {
+            "database_host": ("database_url", "reader_database_url", "app_database_url"),
+            "redis_host": ("redis_url",),
+        }
+        values = dict(data)
+        for host_field, url_fields in overrides.items():
+            host = values.get(host_field)
+            if not host:
+                continue
+            for name in url_fields:
+                if values.get(name):
+                    values[name] = with_host(values[name], str(host))
+        return values
 
 
 @lru_cache(maxsize=1)

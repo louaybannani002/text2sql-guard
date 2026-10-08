@@ -183,7 +183,7 @@ importers:
         version: 1.52.0(@types/react@19.3.0)(react@19.3.0)
       next:
         specifier: 16.4.0
-        version: 16.4.0(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 16.4.0(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.63.0)(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -202,9 +202,6 @@ importers:
       shadcn:
         specifier: ^4.21.4
         version: 4.21.4(supports-color@7.2.0)
-      sonner:
-        specifier: ^2.0.8
-        version: 2.0.8(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
@@ -212,6 +209,12 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@axe-core/playwright':
+        specifier: ^4.13.0
+        version: 4.13.0(playwright-core@1.63.0)
+      '@playwright/test':
+        specifier: ^1.63.0
+        version: 1.63.0
       '@tailwindcss/turbopack':
         specifier: ^4
         version: 4.3.3
@@ -271,6 +274,11 @@ packages:
   '@asamuzakjp/dom-selector@9.2.4':
     resolution: {integrity: sha512-YnVzxDxLaqL0t7Q4wfcgHZjg55Wm6y5EaO7Bhu3q9J7wq/8iw3PhsnWiOQhYekx4VexnbkgWpTT6n+QIV7kczw==}
     engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
+  '@axe-core/playwright@4.13.0':
+    resolution: {integrity: sha512-6YLx+kxXu5GJceG4ozFg+33a2EMTdjYwWGloJ3sb9Kta5pp+ZNS53uxGVog5JetIY8s++P5UrtX+cri+u0VAVg==}
+    peerDependencies:
+      playwright-core: '>= 1.0.0'
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -829,6 +837,11 @@ packages:
 
   '@oxc-project/types@0.152.0':
     resolution: {integrity: sha512-oM/5rLBm2tPkg0iBgkH/FOeR3PCDpY19GTgAZjMFM8h9WI9VW7cLgzp6nwtarYKmovavIQZ+Fe/RKX/8C8O/Rw==}
+
+  '@playwright/test@1.63.0':
+    resolution: {integrity: sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@radix-ui/number@1.1.3':
     resolution: {integrity: sha512-Road2bidD0uu/1BGDOWNdPI06g0lIRy6IF9GZcIrDK2KGItfor8IQwQa+yM2ERgHM1MmHxaxpTzk0/Jp42lNfA==}
@@ -2190,6 +2203,10 @@ packages:
   available-typed-arrays@1.0.7:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
     engines: {node: '>= 0.4'}
+
+  axe-core@4.13.0:
+    resolution: {integrity: sha512-UzGt8zg7Ny8djbYMhxl2zuEevVa7r2gJjYY5Lwr1xM7+XU2nd6CkIWFTVcCIbAP63vSz71NaVyyuSk9lHKcy0A==}
+    engines: {node: '>=4'}
 
   axe-core@4.14.0:
     resolution: {integrity: sha512-9WTZxEjsZ7b13TH8JPmbV2z8CHbl80/2hm3XPEG4JgNdQLK81IBRXmSxHfMAOkSqQeRxT/0dwNDz2GOm3zzpcQ==}
@@ -3807,6 +3824,16 @@ packages:
     resolution: {integrity: sha512-nDywThFk1i4BQK4twPQ6TA4RT8bDY96yeuCVBWL3ePARCiEKDRSrNGbFIgUJpLp+XeIR65v8ra7WuJOFUBtkMA==}
     engines: {node: '>=8'}
 
+  playwright-core@1.63.0:
+    resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.63.0:
+    resolution: {integrity: sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
     engines: {node: '>= 0.4'}
@@ -4123,16 +4150,6 @@ packages:
   socks@2.8.10:
     resolution: {integrity: sha512-e0VyvkVTwVYViNovRkZ9aodhxVlyoMn7eJhVUPxZ+eK9P/7CBkxvvsBOHqFPEH416726W8tLXXXjKwqgTErrCQ==}
     engines: {node: '>= 10.0.0', npm: '>= 3.0.0'}
-
-  sonner@2.0.8:
-    resolution: {integrity: sha512-UM/ByIoFra8yzV75n1o0Puu0bw5U/9UNnDacrJNspekBewIfsQ3D6ez1nvlWpt7aTsO6rujQtifBpycwIivqlg==}
-    peerDependencies:
-      '@types/react': ^18.0.0 || ^19.0.0
-      react: ^18.0.0 || ^19.0.0 || ^19.0.0-rc
-      react-dom: ^18.0.0 || ^19.0.0 || ^19.0.0-rc
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
 
   source-map-js@1.2.2:
     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
@@ -4632,6 +4649,11 @@ snapshots:
       css-tree: 3.2.1
       is-potential-custom-element-name: 1.0.1
       lru-cache: 11.5.3
+
+  '@axe-core/playwright@4.13.0(playwright-core@1.63.0)':
+    dependencies:
+      axe-core: 4.13.0
+      playwright-core: 1.63.0
 
   '@babel/code-frame@7.29.7':
     dependencies:
@@ -5184,6 +5206,10 @@ snapshots:
   '@nolyfill/is-core-module@1.0.39': {}
 
   '@oxc-project/types@0.152.0': {}
+
+  '@playwright/test@1.63.0':
+    dependencies:
+      playwright: 1.63.0
 
   '@radix-ui/number@1.1.3': {}
 
@@ -6545,6 +6571,8 @@ snapshots:
   available-typed-arrays@1.0.7:
     dependencies:
       possible-typed-array-names: 1.1.0
+
+  axe-core@4.13.0: {}
 
   axe-core@4.14.0: {}
 
@@ -8001,7 +8029,7 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
 
-  next@16.4.0(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  next@16.4.0(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.63.0)(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
     dependencies:
       '@next/env': 16.4.0
       '@swc/helpers': 0.5.23
@@ -8020,6 +8048,7 @@ snapshots:
       '@next/swc-linux-x64-musl': 16.4.0
       '@next/swc-win32-arm64-msvc': 16.4.0
       '@next/swc-win32-x64-msvc': 16.4.0
+      '@playwright/test': 1.63.0
       sharp: 0.35.5(@types/node@22.20.5)
     transitivePeerDependencies:
       - '@babel/core'
@@ -8204,6 +8233,12 @@ snapshots:
   pkg-up@3.1.0:
     dependencies:
       find-up: 3.0.0
+
+  playwright-core@1.63.0: {}
+
+  playwright@1.63.0:
+    dependencies:
+      playwright-core: 1.63.0
 
   possible-typed-array-names@1.1.0: {}
 
@@ -8702,13 +8737,6 @@ snapshots:
     dependencies:
       ip-address: 10.7.3
       smart-buffer: 4.2.0
-
-  sonner@2.0.8(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
-    dependencies:
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
-    optionalDependencies:
-      '@types/react': 19.3.0
 
   source-map-js@1.2.2: {}
 

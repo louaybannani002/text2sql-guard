@@ -2,7 +2,7 @@
  * The API's wire format, as zod schemas (validated at runtime) and inferred types.
  * Mirrors backend/src/text2sql/api/routes and pipeline/events.py.
  */
-import { z } from "zod";
+import { z } from "./zod";
 
 export const STAGE_NAMES = [
   "input_guard",

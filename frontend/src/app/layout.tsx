@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import { ThemeProvider } from "next-themes";
 
-import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import "./globals.css";
@@ -25,7 +25,9 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Set by src/proxy.ts; next-themes' anti-flash inline script needs it under the strict CSP.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html
       lang="en"
@@ -33,10 +35,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="min-h-full bg-background font-sans text-foreground">
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+          nonce={nonce}
+        >
           <TooltipProvider>
             {children}
-            <Toaster position="bottom-right" />
           </TooltipProvider>
         </ThemeProvider>
       </body>

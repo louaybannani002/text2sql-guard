@@ -150,7 +150,7 @@
 }
 .hljs-number,
 .hljs-literal {
-  color: oklch(0.58 0.16 50);
+  color: oklch(0.5 0.15 45); /* >= 4.5:1 on the code block background */
 }
 .hljs-comment {
   color: var(--muted-foreground);

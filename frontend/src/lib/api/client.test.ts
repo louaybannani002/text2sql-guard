@@ -143,3 +143,16 @@ describe("sendFeedback", () => {
     expect(calls[0]?.headers.authorization).toBe("Bearer tkn");
   });
 });
+
+describe("strict CSP compatibility", () => {
+  it("parses API payloads without eval (zod runs jitless)", async () => {
+    const { z } = await import("./zod");
+    expect(z.config().jitless).toBe(true);
+    const evalSpy = vi.spyOn(globalThis, "Function");
+    const answer = makeAnswer();
+    const body = sseBody([["answer", answer]]);
+    const { fetch } = fakeFetch({ "POST /v1/query": () => streamResponse(body) });
+    await expect(client(fetch).api.ask("q")).resolves.toEqual(answer);
+    expect(evalSpy).not.toHaveBeenCalled();
+  });
+});

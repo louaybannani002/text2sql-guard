@@ -21,6 +21,7 @@ from text2sql.executor.executor import QueryExecutor
 from text2sql.guard.sql_policy import load_policy
 from text2sql.llm import LLMConfig
 from text2sql.llm.embeddings import embed_texts
+from text2sql.llm.warmup import warm_up
 from text2sql.pipeline.answer import Answer
 from text2sql.pipeline.events import EventSink
 from text2sql.pipeline.orchestrator import OrchestratorDeps, answer
@@ -91,6 +92,8 @@ type ServicesFactory = Callable[[Settings], Awaitable[Services]]
 async def build_services(settings: Settings) -> Services:
     """Open pools and clients (catalog as t2s_app, executor as t2s_reader, Redis)."""
     llm = LLMConfig.from_settings(settings)
+    # Pay for LiteLLM's lazy SDK import now: inside a request it would freeze the event loop.
+    await warm_up(llm.models["main"])
     catalog = await create_pool(settings.app_database_url, max_size=5)
     executor = await QueryExecutor.create(settings)
     redis: Redis = Redis.from_url(settings.redis_url.get_secret_value(), socket_timeout=2.0)

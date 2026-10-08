@@ -53,11 +53,11 @@ export function GuardrailNotice({ guardrail, status, message }: Props) {
                 "rounded-lg border px-3 py-2 text-xs",
                 hit
                   ? "border-amber-600 bg-amber-500/20 font-medium dark:border-amber-400"
-                  : "border-amber-500/20 opacity-70",
+                  : "border-amber-500/30 text-amber-900 dark:text-amber-100",
               )}
               title={layer.description}
             >
-              <span className="block text-[11px] uppercase tracking-wide opacity-70">
+              <span className="block text-[11px] tracking-wide text-amber-800 uppercase dark:text-amber-200">
                 {index + 1}. {hit ? "stopped here" : passed ? "passed" : "not reached"}
               </span>
               {layer.name}
@@ -65,7 +65,9 @@ export function GuardrailNotice({ guardrail, status, message }: Props) {
           );
         })}
       </ol>
-      {info ? <p className="text-xs opacity-80">{info.description}</p> : null}
+      {info ? (
+        <p className="text-xs text-amber-900 dark:text-amber-100">{info.description}</p>
+      ) : null}
     </section>
   );
 }

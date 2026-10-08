@@ -40,7 +40,13 @@ export function UnderTheHood({ answer }: { answer: Answer }) {
             value={answer.cache === "exact" ? "exact hit" : answer.cache === "semantic" ? "similar question" : "miss"}
           />
         </dl>
-        <div className="overflow-x-auto">
+        {/* Scrolls sideways on phones: focusable so keyboard users can scroll it too. */}
+        <div
+          className="overflow-x-auto rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          tabIndex={0}
+          role="region"
+          aria-label="Stage timings"
+        >
           <table className="w-full min-w-[32rem] text-sm">
             <caption className="sr-only">Time, tokens and cost per stage</caption>
             <thead className="text-left text-xs text-muted-foreground">

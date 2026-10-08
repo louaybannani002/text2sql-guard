@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test test-integration run check up down down-volumes psql migrate load-data refresh-views catalog ask
+.PHONY: help install lint format typecheck test test-integration run check up services down down-volumes logs e2e lighthouse psql migrate load-data refresh-views catalog ask
 
 COMPOSE := docker compose -f ../docker-compose.yml --env-file .env
 
@@ -32,8 +32,20 @@ run: ## Run the API locally with auto-reload (reads .env)
 
 check: lint typecheck test ## Everything CI runs
 
-up: ## Start postgres + redis and wait until healthy
-	$(COMPOSE) up -d --wait
+up: ## Build and start the whole app (db, cache, API, web on http://localhost:3000)
+	$(COMPOSE) up -d --build --wait
+
+services: ## Start only postgres + redis (for `make run` and `pnpm dev`)
+	$(COMPOSE) up -d --wait postgres redis
+
+logs: ## Follow the API and web logs
+	$(COMPOSE) logs -f api web
+
+e2e: up ## Playwright end-to-end tests against the docker compose stack
+	cd ../frontend && pnpm e2e
+
+lighthouse: up ## Lighthouse audit (mobile + desktop) of the running web UI
+	cd ../frontend && pnpm lighthouse
 
 down: ## Stop services (data volumes are kept)
 	$(COMPOSE) down

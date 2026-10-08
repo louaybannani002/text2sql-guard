@@ -3,41 +3,51 @@
 import hljs from "highlight.js/lib/core";
 import pgsql from "highlight.js/lib/languages/pgsql";
 import { Check, Copy } from "lucide-react";
-import { useMemo, useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
 hljs.registerLanguage("pgsql", pgsql);
 
+type CopyState = "idle" | "copied" | "failed";
+
 export function SqlBlock({ sql }: { sql: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copy, setCopy] = useState<CopyState>("idle");
   // highlight.js escapes the input: the HTML holds only its own <span class="hljs-*"> tags.
   const html = useMemo(() => hljs.highlight(sql, { language: "pgsql" }).value, [sql]);
 
-  async function copy() {
+  useEffect(() => {
+    if (copy === "idle") return undefined;
+    const timer = setTimeout(() => setCopy("idle"), 2000);
+    return () => clearTimeout(timer);
+  }, [copy]);
+
+  async function copySql() {
     try {
       await navigator.clipboard.writeText(sql);
-      setCopied(true);
-      toast.success("SQL copied");
-      setTimeout(() => setCopied(false), 1500);
+      setCopy("copied");
     } catch {
-      toast.error("Couldn't copy: the browser blocked clipboard access.");
+      setCopy("failed");
     }
   }
 
   return (
     <div className="relative rounded-lg border bg-muted/40">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="absolute top-2 right-2"
-        onClick={copy}
-        aria-label={copied ? "Copied" : "Copy SQL"}
+      <div className="absolute top-2 right-2 flex items-center gap-2">
+        <span role="status" className="text-xs text-muted-foreground">
+          {copy === "copied" ? "Copied" : copy === "failed" ? "Couldn't copy" : ""}
+        </span>
+        <Button variant="ghost" size="icon-sm" onClick={copySql} aria-label="Copy SQL">
+          {copy === "copied" ? <Check aria-hidden /> : <Copy aria-hidden />}
+        </Button>
+      </div>
+      {/* Long lines scroll sideways: focusable so keyboard users can scroll too. */}
+      <pre
+        className="overflow-x-auto rounded-lg p-4 pr-12 text-[13px] leading-relaxed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        tabIndex={0}
+        role="region"
+        aria-label="SQL query"
       >
-        {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-      </Button>
-      <pre className="overflow-x-auto p-4 pr-12 text-[13px] leading-relaxed">
         <code className="hljs font-mono" dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
     </div>

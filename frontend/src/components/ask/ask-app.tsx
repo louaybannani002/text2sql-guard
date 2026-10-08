@@ -1,21 +1,37 @@
 "use client";
 
 import { LogOut, ShieldCheck } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useCallback } from "react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { SignInCard } from "@/components/auth/sign-in-card";
 import { QuestionForm } from "@/components/ask/question-form";
 import { RequestError } from "@/components/ask/request-error";
 import { StageProgress } from "@/components/ask/stage-progress";
-import { AnswerView } from "@/components/results/answer-view";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAsk } from "@/hooks/use-ask";
 
+// The results UI (table, chart, SQL highlighting) is most of the JavaScript: load it only
+// once a question is asked, not with the sign-in page.
+const loadAnswerView = () => import("@/components/results/answer-view");
+const AnswerView = dynamic(() => loadAnswerView().then((m) => m.AnswerView), {
+  ssr: false,
+  loading: () => <ResultSkeleton />,
+});
+
 export function AskApp() {
   const { client, session, signOut } = useAuth();
-  const { state, ask, cancel } = useAsk(client);
+  const { state, ask: askQuestion, cancel } = useAsk(client);
   const running = state.phase === "running";
+  const ask = useCallback(
+    (question: string) => {
+      void loadAnswerView(); // fetch the results chunk while the pipeline runs
+      return askQuestion(question);
+    },
+    [askQuestion],
+  );
 
   return (
     <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-8 px-4 py-6 sm:py-10">

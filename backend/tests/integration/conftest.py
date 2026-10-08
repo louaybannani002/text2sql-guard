@@ -58,7 +58,7 @@ def compose_services() -> None:
         pytest.skip("docker is not installed")
     compose_up = [docker, "compose", "-f", "../docker-compose.yml", "--env-file", ".env"]
     started = subprocess.run(  # noqa: S603 - fixed argument list, no user input
-        [*compose_up, "up", "-d", "--wait"],
+        [*compose_up, "up", "-d", "--wait", "postgres", "redis"],  # not the app containers
         cwd=BACKEND,
         check=False,
         capture_output=True,

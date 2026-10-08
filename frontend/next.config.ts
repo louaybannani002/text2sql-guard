@@ -1,27 +1,35 @@
 import type { NextConfig } from "next";
 
-const isDev = process.env.NODE_ENV === "development";
-const apiOrigin = new URL(process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").origin;
-
-// The page is static (no per-request nonce), so inline scripts must stay allowed; everything
-// else is locked down. The browser may only talk to this origin and the API.
-const csp = [
-  "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self'",
-  `connect-src 'self' ${apiOrigin}`,
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "object-src 'none'",
-].join("; ");
+/**
+ * Security headers for every response. The Content-Security-Policy is not here: a strict CSP
+ * needs a fresh nonce per request, so src/proxy.ts builds it (src/lib/security/csp.ts).
+ */
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "no-referrer" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  { key: "Origin-Agent-Cluster", value: "?1" },
+  { key: "X-DNS-Prefetch-Control", value: "off" },
+  { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+  // Browsers ignore HSTS over plain HTTP, so this is safe locally and active behind TLS.
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+  {
+    key: "Permissions-Policy",
+    value:
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), " +
+      "magnetometer=(), gyroscope=(), accelerometer=(), browsing-topics=()",
+  },
+];
 
 const nextConfig: NextConfig = {
-  cacheComponents: true,
-  partialPrefetching: true,
+  // A self-contained server (.next/standalone) for the Docker image.
+  output: "standalone",
   poweredByHeader: false,
+  // Nonce-based CSP requires per-request rendering, which Cache Components (Partial
+  // Prerendering) would bypass with a static shell. The page is a client app; nothing to cache.
+  cacheComponents: false,
   turbopack: {
     rules: {
       "*.css": {
@@ -31,18 +39,7 @@ const nextConfig: NextConfig = {
     },
   },
   headers() {
-    return [
-      {
-        source: "/:path*",
-        headers: [
-          { key: "Content-Security-Policy", value: csp },
-          { key: "Referrer-Policy", value: "no-referrer" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-        ],
-      },
-    ];
+    return [{ source: "/:path*", headers: securityHeaders }];
   },
 };
 

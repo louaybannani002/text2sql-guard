@@ -4,7 +4,7 @@
  * The client never stores the access token: it asks `getToken()` (memory only, see
  * AuthProvider) for every request and calls `onUnauthorized()` on a 401.
  */
-import { z } from "zod";
+import { z } from "./zod";
 
 import { SseParser, type SseMessage } from "./sse";
 import {

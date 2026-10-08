@@ -44,7 +44,11 @@ make test        # pytest (unit tests; `integration` marker deselected)
 make run         # uvicorn with reload on 127.0.0.1:8000
 make check       # lint + typecheck + test — must pass before every commit
 
-make up          # start postgres (pgvector, pg16) + redis 7 from ../docker-compose.yml
+make up          # build + start the whole app: postgres, redis, API (:8000), web UI (:3000)
+make services    # postgres (pgvector, pg16) + redis 7 only, for `make run` / `pnpm dev`
+make logs        # follow API and web container logs
+make e2e         # make up, then Playwright end-to-end tests against the stack
+make lighthouse  # make up, then Lighthouse (mobile + desktop); fails under 90
 make test-integration  # smoke tests against those services
 make migrate     # apply pending SQL migrations
 make load-data   # migrate, then (re)load the Olist CSVs into schema `shop` + refresh views
@@ -94,6 +98,8 @@ make down        # stop services (`make down-volumes` also wipes data)
 - Roles `main` / `fast` / `local` map to LiteLLM model names in env (`LLM_MODEL_*`); never
   hard-code a model name in code. Catch `LLMError` (subclasses: timeout, provider, output
   validation — the latter carries `raw_output`, `errors` and the `usage` already spent).
+- The API calls `text2sql.llm.warmup.warm_up` at startup: LiteLLM imports the provider SDK
+  lazily on its first call, which would otherwise freeze the event loop inside a request.
 - Import LiteLLM only via `text2sql.llm._litellm` (it pins the offline price map and disables
   telemetry before LiteLLM loads). Never log prompts or raw model output.
 - Prompts live in `src/text2sql/llm/prompts/<name>_v<N>.system.md` + `.user.md` (a
@@ -205,6 +211,20 @@ make down        # stop services (`make down-volumes` also wipes data)
 - The API's `guardrail` field (`api/guardrail.py`) tells the UI which layer stopped a question;
   `lib/guardrails.ts` holds the user-facing labels for its layers and codes. Add a label when a
   new input-rule category or validator rule appears.
+- **Strict CSP** (`src/proxy.ts`, `lib/security/csp.ts`): a fresh nonce per request,
+  `'strict-dynamic'`, no `'unsafe-inline'`/`'unsafe-eval'` (dev excepted), nonce-only
+  `style-src`. Hence `cacheComponents` is off (a prerendered shell cannot carry a nonce) and
+  the page renders per request. Other security headers live in `next.config.ts`.
+  - Libraries must not eval or inject `<style>`/`<script>` at runtime: zod runs `jitless`
+    (import `z` from `lib/api/zod.ts`, never from `"zod"`); sonner was removed for this.
+  - The e2e fixture fails any test on a CSP violation or console error.
+- E2E (`frontend/e2e/`, `pnpm e2e`): Playwright against the compose stack, real LLM included;
+  desktop + mobile projects, axe WCAG 2.1 AA checks on each state, serial (shared demo user,
+  real rate limits). Credentials come from the environment or `backend/.env`. Use
+  `127.0.0.1`, not `localhost` (ports are IPv4-only; Node tries `::1` first).
+- Lighthouse budget: performance and accessibility >= 90 on mobile and desktop
+  (`pnpm lighthouse`). The results UI is lazy-loaded (`next/dynamic`) to keep the first load
+  light; keep heavy libraries out of the sign-in path.
 - Charts are only drawn when `lib/chart.ts` finds a date or category column plus numeric
   columns of a comparable scale; anything else shows the table only.
 
@@ -310,6 +330,20 @@ make down        # stop services (`make down-volumes` also wipes data)
   actually read** — derive this from the database (`has_column_privilege('t2s_reader', …,
   'SELECT')`), never from a hard-coded list, so a new grant/revoke is picked up automatically.
   Restricted columns must not appear in prompts at all.
+
+## Docker compose (`docker-compose.yml`)
+
+- Services: `postgres`, `redis`, `api` (`backend/Dockerfile`), `web` (`frontend/Dockerfile`), all
+  published on 127.0.0.1 only. `api` and `web` run read-only, as non-root, with all capabilities
+  dropped; `make up` waits until every healthcheck passes.
+- `api` reads the same `backend/.env` as the host. `DATABASE_HOST=postgres:5432` and
+  `REDIS_HOST=redis:6379` (set in compose only) replace the host in the URLs
+  (`config/hosts.py`), so role passwords stay in one place. Never bake `.env` into an image:
+  `.dockerignore` excludes it.
+- `web` inlines `NEXT_PUBLIC_API_URL` (the API as the *browser* reaches it) at build time.
+- The database is not initialised by compose: on an empty volume run `make migrate`,
+  `make load-data` and `make catalog` from the host.
+- Integration tests start only `postgres redis`, never the app containers.
 
 Local service credentials (`POSTGRES_*`, `REDIS_*`) live in `backend/.env` and must match
 `DATABASE_URL` / `REDIS_URL`. SQL files in `backend/db/init/` run once, on an empty volume.

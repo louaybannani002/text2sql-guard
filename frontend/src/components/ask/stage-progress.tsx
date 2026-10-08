@@ -69,13 +69,26 @@ export function StageProgress({ steps, running, startedAt }: Props) {
                   <span className="sr-only"> ({STATUS_TEXT[step.status]})</span>
                 </span>
                 {step.latencyMs !== null ? (
-                  <span className="text-xs text-muted-foreground tabular-nums">
+                  <span
+                    className={cn(
+                      "text-xs tabular-nums",
+                      // muted grey is under 4.5:1 on the red tint of a failed step
+                      step.status === "error" ? "text-foreground/75" : "text-muted-foreground",
+                    )}
+                  >
                     {formatMs(step.latencyMs)}
                   </span>
                 ) : null}
               </span>
               {step.message ? (
-                <span className="text-xs break-words text-muted-foreground">{step.message}</span>
+                <span
+                  className={cn(
+                    "text-xs break-words",
+                    step.status === "error" ? "text-foreground/75" : "text-muted-foreground",
+                  )}
+                >
+                  {step.message}
+                </span>
               ) : null}
             </span>
           </li>

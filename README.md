@@ -3,29 +3,40 @@
 Production-grade Text-to-SQL: natural-language questions → LLM-generated SQL → guard checks →
 read-only execution, with full observability.
 
-> Status: scaffolding only. No business logic yet.
+A question passes an input guard (rules, then an AI classifier), schema retrieval, SQL
+generation with a repair loop, an AST-based SQL validator and a read-only, cost-checked
+executor running as a least-privilege database role. Answers stream live to a web UI.
 
 ## Layout
 
-- [`backend/`](backend/) — Python 3.12 API (uv, FastAPI, pydantic-settings, structlog)
-- `frontend/` — web UI (TBD)
+- [`backend/`](backend/) — Python 3.12 API (uv, FastAPI, asyncpg, LiteLLM, sqlglot, Redis)
+- [`frontend/`](frontend/) — Next.js web UI (TypeScript, Tailwind, shadcn/ui, Playwright e2e)
 - `infra/` — Terraform (TBD)
-- `eval/` — evaluation harness (TBD)
+- `eval/` — evaluation datasets
 - [`docs/`](docs/) — design docs
 
 ## Quick start
 
 ```sh
 cd backend
-cp .env.example .env   # fill in secrets
+cp .env.example .env    # fill in secrets; add "http://localhost:3000" to CORS_ALLOWED_ORIGINS
 make install
-make up                 # postgres (pgvector) + redis via docker compose
-make check
+make services           # postgres (pgvector) + redis only
 make load-data          # migrate + load Olist CSVs from backend/data/raw/
 make catalog            # schema docs + few-shot examples, with embeddings
-make ask Q="Revenue per month in 2018?"   # prints drafted SQL
-make test-integration
-make run
+make up                 # the whole app: db, cache, API (:8000), web UI (http://localhost:3000)
+```
+
+Then sign in at http://localhost:3000 with `DEMO_USERNAME` / `DEMO_PASSWORD` from `.env`.
+
+Checks:
+
+```sh
+make check              # backend lint + types + unit tests
+make test-integration   # backend tests against postgres + redis
+make e2e                # Playwright end-to-end tests against the running stack
+make lighthouse         # Lighthouse budget (performance, accessibility >= 90)
+cd ../frontend && pnpm check
 ```
 
 Conventions live in [CLAUDE.md](CLAUDE.md).

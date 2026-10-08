@@ -1,6 +1,7 @@
-# Local development services. Credentials come from backend/.env:
-#   cd backend && make up
-# (equivalent: docker compose --env-file backend/.env up -d --wait)
+# The whole app: postgres + redis + API + web UI. Credentials come from backend/.env:
+#   cd backend && make up          (everything, built from source; http://localhost:3000)
+#   cd backend && make services    (postgres + redis only, for `make run` / `pnpm dev`)
+# Ports are published on 127.0.0.1 only.
 name: text2sql-guard
 
 services:
@@ -41,6 +42,50 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  api:
+    build: ./backend
+    image: text2sql-guard-api
+    restart: unless-stopped
+    # The same .env as on the host; only the service hosts differ inside the network.
+    env_file: ./backend/.env
+    environment:
+      DATABASE_HOST: postgres:5432
+      REDIS_HOST: redis:6379
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Where the *browser* reaches the API (the port published above).
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:${API_PORT:-8000}
+    image: text2sql-guard-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
 
 volumes:
   postgres-data:

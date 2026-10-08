@@ -48,6 +48,11 @@ async function signIn(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("AskApp", () => {
+  // The results UI is lazy-loaded: compile it once up front so no test waits on a cold import.
+  beforeAll(async () => {
+    await import("@/components/results/answer-view");
+  }, 60_000);
+
   it("signs in, asks an example question and shows the full answer", async () => {
     const { user, calls } = setup(answering(makeAnswer()));
     await signIn(user);
