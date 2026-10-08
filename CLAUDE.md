@@ -13,7 +13,7 @@ full tracing.
 | Path        | Contents                                         |
 |-------------|--------------------------------------------------|
 | `backend/`  | Python 3.12 service, managed with **uv**          |
-| `frontend/` | Web UI (not started yet)                          |
+| `frontend/` | Next.js UI (App Router, TS strict, Tailwind, shadcn/ui), pnpm |
 | `infra/`    | Terraform (not started yet)                       |
 | `eval/`     | Evaluation datasets and harness                   |
 | `docs/`     | Architecture notes and ADRs                       |
@@ -187,6 +187,26 @@ make down        # stop services (`make down-volumes` also wipes data)
   3. body limit: `MAX_REQUEST_BYTES`, checked against the declared size and the bytes actually
      received.
 - OpenAPI docs are disabled when `APP_ENV=production`.
+
+## Frontend (`frontend/`, pnpm)
+
+- Next.js 16 (App Router, Turbopack, Cache Components), React 19, TypeScript strict
+  (+ `noUncheckedIndexedAccess`), Tailwind v4, shadcn/ui, TanStack Table **v9** (`useTable`,
+  explicit `tableFeatures`), Recharts, highlight.js (pgsql), zod, Vitest + Testing Library.
+  `frontend/AGENTS.md`: this Next.js differs from older versions; read
+  `node_modules/next/dist/docs/` before using an API you are unsure of.
+- `pnpm check` (lint + typecheck + test) must pass before every commit; `pnpm build` too.
+- All API access goes through `src/lib/api/client.ts`. Its zod schemas in `lib/api/types.ts`
+  mirror the backend models: when `AnswerOut`, the SSE events or the error model change, update
+  them in the same commit. The SSE stream is read with `fetch` + `SseParser` (`EventSource`
+  cannot POST with a header).
+- The JWT stays in memory (`TokenStore`), never in web storage or cookies. Never log tokens,
+  questions or SQL in the browser console.
+- The API's `guardrail` field (`api/guardrail.py`) tells the UI which layer stopped a question;
+  `lib/guardrails.ts` holds the user-facing labels for its layers and codes. Add a label when a
+  new input-rule category or validator rule appears.
+- Charts are only drawn when `lib/chart.ts` finds a date or category column plus numeric
+  columns of a comparable scale; anything else shows the table only.
 
 ## Integration tests
 

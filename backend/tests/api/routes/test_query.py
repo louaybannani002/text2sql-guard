@@ -59,7 +59,10 @@ async def test_final_event_has_the_answer_and_nothing_internal(
         "attempt": 1,
         "status": "ok",
         "latency_ms": 2000.0,
+        "tokens": 3000,
+        "cost_usd": 0.006,
     }
+    assert answer["guardrail"] is None
     assert (answer["tokens"], answer["cost_usd"]) == (3000, 0.006)
     # Answer.detail and the trace's inputs/outputs are internal.
     assert "INTERNAL" not in text

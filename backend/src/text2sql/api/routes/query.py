@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from text2sql.api.dependencies import LimitedUserDep, ServicesDep
 from text2sql.api.errors import ErrorBody, request_id_of
+from text2sql.api.guardrail import GuardrailOut, guardrail_of
 from text2sql.api.sse import sse_event
 from text2sql.executor.serialize import JsonValue
 from text2sql.observability.logging import get_logger
@@ -39,12 +40,14 @@ class ColumnOut(BaseModel):
 
 
 class StageTiming(BaseModel):
-    """How long one stage of one attempt took."""
+    """How long one stage of one attempt took, and what its model calls cost."""
 
     stage: str
     attempt: int
     status: str
     latency_ms: float
+    tokens: int
+    cost_usd: float | None
 
 
 class Timings(BaseModel):
@@ -71,6 +74,9 @@ class AnswerOut(BaseModel):
     cache: CacheHit | None = Field(
         default=None, description="Served from the cache (exact) or from a similar question's SQL."
     )
+    guardrail: GuardrailOut | None = Field(
+        default=None, description="For blocked/rejected answers: the layer that stopped it."
+    )
     timings: Timings
     tokens: int
     cost_usd: float | None
@@ -93,11 +99,17 @@ def answer_out(query_id: uuid.UUID, answer: Answer) -> AnswerOut:
         truncated=result.truncated if result else False,
         attempts=answer.attempts,
         cache=answer.cache,
+        guardrail=guardrail_of(answer),
         timings=Timings(
             total_ms=trace.total_ms,
             stages=[
                 StageTiming(
-                    stage=s.stage, attempt=s.attempt, status=s.status, latency_ms=s.latency_ms
+                    stage=s.stage,
+                    attempt=s.attempt,
+                    status=s.status,
+                    latency_ms=s.latency_ms,
+                    tokens=s.tokens,
+                    cost_usd=s.cost_usd,
                 )
                 for s in trace.stages
             ],
