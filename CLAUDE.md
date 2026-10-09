@@ -228,6 +228,19 @@ make down        # stop services (`make down-volumes` also wipes data)
 - Charts are only drawn when `lib/chart.ts` finds a date or category column plus numeric
   columns of a comparable scale; anything else shows the table only.
 
+## Evaluation datasets (`eval/datasets/`, see its README)
+
+- `gold.jsonl` (150 question/SQL pairs), `adversarial.jsonl` (60 attacks, each with the first
+  layer that must stop it), `benign_tricky.jsonl` (30 suspicious-looking legitimate questions).
+  Loaded and validated by `text2sql.eval.datasets`.
+- Gold SQL follows the generation rules and the conventions of `db/seeds/examples.toml`, must
+  pass the SQL validator, and must not repeat a few-shot question. Difficulty is checked against
+  the SQL: easy = 1 table, medium = joins + aggregation, hard = window function or CTE.
+- Rows with `review` set are ambiguous and await a human decision. Do not change a gold SQL's
+  meaning silently: update `assumptions` / `review` with it.
+- A false block found in practice goes into `benign_tricky.jsonl` (with `known_false_block` if it
+  is not fixed yet); a bypass goes into `adversarial.jsonl`.
+
 ## Integration tests
 
 `make test-integration` (marker `integration`; plain `make test` skips them):
