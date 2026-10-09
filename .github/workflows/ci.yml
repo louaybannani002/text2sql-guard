@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.12.23"
+
+jobs:
+  backend:
+    name: Backend (lint, types, unit tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+      - name: Install dependencies and tokenizer
+        run: |
+          uv sync --all-groups --frozen
+          uv run python -m text2sql.llm.tokens
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+      - run: uv run mypy src tests
+      - run: uv run pytest
+
+  frontend:
+    name: Frontend (lint, types, unit tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm build
+
+  eval-smoke:
+    name: Eval smoke (accuracy >= 75%, attack block rate = 100%)
+    needs: backend
+    runs-on: ubuntu-latest
+    # Needs real data and a real model: runs only when the repository has these secrets.
+    env:
+      HAS_SECRETS: ${{ secrets.OPENAI_API_KEY != '' && secrets.KAGGLE_USERNAME != '' && secrets.KAGGLE_KEY != '' }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Skip without secrets
+        if: env.HAS_SECRETS != 'true'
+        run: echo "::notice::eval-smoke skipped. Add OPENAI_API_KEY, KAGGLE_USERNAME and KAGGLE_KEY repository secrets to enable it."
+      - uses: actions/checkout@v4
+        if: env.HAS_SECRETS == 'true'
+      - name: Install uv and dependencies
+        if: env.HAS_SECRETS == 'true'
+        run: |
+          curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+          uv sync --all-groups --frozen
+          uv run python -m text2sql.llm.tokens
+      - name: Write a throwaway .env (random local passwords, key from secrets)
+        if: env.HAS_SECRETS == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          pw() { python3 -c "import secrets; print(secrets.token_urlsafe(24))"; }
+          PG=$(pw); RD=$(pw); RE=$(pw); AP=$(pw)
+          {
+            echo "APP_ENV=test"
+            echo "POSTGRES_USER=text2sql"; echo "POSTGRES_PASSWORD=$PG"; echo "POSTGRES_DB=text2sql"
+            echo "REDIS_PASSWORD=$RD"
+            echo "DATABASE_URL=postgresql+asyncpg://text2sql:$PG@127.0.0.1:5432/text2sql"
+            echo "READER_DATABASE_URL=postgresql+asyncpg://t2s_reader:$RE@127.0.0.1:5432/text2sql"
+            echo "APP_DATABASE_URL=postgresql+asyncpg://t2s_app:$AP@127.0.0.1:5432/text2sql"
+            echo "REDIS_URL=redis://:$RD@127.0.0.1:6379/0"
+            echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+            grep -E '^LLM_' .env.example
+            echo "LANGFUSE_PUBLIC_KEY=ci-unused"; echo "LANGFUSE_SECRET_KEY=ci-unused"
+            echo "LANGFUSE_HOST=https://cloud.langfuse.com"
+            echo "JWT_SECRET=$(pw)$(pw)"; echo "DEMO_USERNAME=demo"; echo "DEMO_PASSWORD=$(pw)"
+          } > .env
+      - name: Cache the Olist CSVs
+        if: env.HAS_SECRETS == 'true'
+        uses: actions/cache@v4
+        with:
+          path: backend/data/raw
+          key: olist-brazilian-ecommerce-v2
+      - name: Download the Olist dataset
+        if: env.HAS_SECRETS == 'true'
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          if [ ! -f data/raw/olist_orders_dataset.csv ]; then
+            uvx kaggle datasets download -d olistbr/brazilian-ecommerce -p data/raw --unzip
+          fi
+      - name: Start postgres and redis
+        if: env.HAS_SECRETS == 'true'
+        run: docker compose -f ../docker-compose.yml --env-file .env up -d --wait postgres redis
+      - name: Migrate, load the data, build the catalog
+        if: env.HAS_SECRETS == 'true'
+        run: |
+          uv run python -m text2sql.db migrate
+          uv run python -m text2sql.db load-olist
+          uv run python -m text2sql.db refresh-views
+          uv run python -m text2sql.db catalog
+      - name: Run the smoke evaluation (fails below the thresholds)
+        if: env.HAS_SECRETS == 'true'
+        run: uv run python ../eval/run_eval.py --smoke --no-cache
+      - name: Upload the reports
+        if: always() && env.HAS_SECRETS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke-report
+          path: eval/reports/

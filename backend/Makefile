@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test test-integration run check up services down down-volumes logs e2e lighthouse psql migrate load-data refresh-views catalog ask
+.PHONY: help install lint format typecheck test test-integration run check up services down down-volumes logs e2e lighthouse eval eval-smoke eval-compare psql migrate load-data refresh-views catalog ask
 
 COMPOSE := docker compose -f ../docker-compose.yml --env-file .env
 
@@ -68,6 +68,15 @@ refresh-views: ## Refresh materialized views in shop (run after any data load)
 
 catalog: migrate ## Rebuild the retrieval catalog; re-embeds only what changed (FORCE=1: everything)
 	uv run python -m text2sql.db $(if $(FORCE),catalog-force,catalog)
+
+eval: ## Full evaluation (gold, attacks, benign) -> ../eval/reports/ (costs ~$2)
+	uv run python ../eval/run_eval.py
+
+eval-smoke: ## 20-question subset; exits 1 below the CI thresholds
+	uv run python ../eval/run_eval.py --smoke
+
+eval-compare: ## Main model vs local model (Ollama at LLM_LOCAL_API_BASE)
+	uv run python ../eval/run_eval.py --model both
 
 ask: ## Draft SQL for a question (not executed): make ask Q="How many orders per state?"
 	uv run python -m text2sql.pipeline "$(Q)"

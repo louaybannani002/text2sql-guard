@@ -47,3 +47,7 @@ Thumbs.db
 
 # --- Data (never commit raw datasets) ---
 backend/data/raw/
+
+# --- Evaluation output (regenerate with eval/run_eval.py) ---
+eval/reports/*
+!eval/reports/.gitkeep

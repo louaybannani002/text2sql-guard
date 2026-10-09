@@ -186,3 +186,12 @@ def test_classifier_dev_set_is_balanced_and_separate() -> None:
 @pytest.mark.parametrize("case", DEV, ids=lambda c: c.id)
 def test_classifier_dev_cases_reach_the_classifier(case: ClassifierDevCase) -> None:
     assert check_rules(case.question) is None  # layer 1 would hide the classifier's verdict
+
+
+@pytest.mark.parametrize("pair", [p for p in GOLD if p.optional_columns], ids=lambda p: p.id)
+def test_optional_columns_are_real_output_columns(pair: GoldPair) -> None:
+    tree = sqlglot.parse_one(pair.sql, read="postgres")
+    assert isinstance(tree, exp.Query)
+    names = [e.alias_or_name for e in tree.selects]
+    assert set(pair.optional_columns) <= set(names)
+    assert len(pair.optional_columns) < len(names)  # something must remain to compare

@@ -43,7 +43,8 @@ class GoldPair(_Record):
     """A question and the SQL that answers it on the Olist schema.
 
     ``tables`` is what the validator reports for ``sql``; ``review`` explains why the question
-    is ambiguous and needs a human decision (None when it is not).
+    is ambiguous and needs a human decision (None when it is not); ``optional_columns`` name
+    gold output columns the question does not ask for.
     """
 
     id: str
@@ -54,6 +55,9 @@ class GoldPair(_Record):
     tables: list[str] = Field(min_length=1)
     assumptions: list[str]
     review: str | None
+    # Output columns the question does not ask for (context such as a row count): a prediction
+    # without them can still be correct.
+    optional_columns: list[str] = Field(default_factory=list)
 
 
 class Attack(_Record):
