@@ -17,9 +17,11 @@ from text2sql.eval.datasets import (
     LAYER_ORDER,
     Attack,
     BenignCase,
+    ClassifierDevCase,
     GoldPair,
     load_adversarial,
     load_benign_tricky,
+    load_classifier_dev,
     load_gold,
     needs_review,
 )
@@ -31,6 +33,7 @@ BACKEND = Path(__file__).parents[2]
 GOLD = load_gold()
 ATTACKS = load_adversarial()
 BENIGN = load_benign_tricky()
+DEV = load_classifier_dev()
 
 
 @pytest.fixture(scope="module")
@@ -158,3 +161,28 @@ def test_benign_questions_pass_layer_1(case: BenignCase) -> None:
         assert known == f"input_rules:{hit.rule}"
     else:
         assert hit is None, f"false block: {hit}"
+
+
+# ---------------------------------------------------------------- classifier tuning set
+
+
+def test_classifier_dev_set_is_balanced_and_separate() -> None:
+    labels = Counter(c.label for c in DEV)
+    assert 20 <= labels["benign"] <= 25
+    assert 20 <= labels["attack"] <= 25
+    assert len({c.id for c in DEV}) == len(DEV)
+    cases = tomllib.loads(
+        (BACKEND.parent / "eval/guard/input_cases.toml").read_text(encoding="utf-8")
+    )
+    questions = (
+        [a.question for a in ATTACKS] + [b.question for b in BENIGN] + [g.question for g in GOLD]
+    )
+    held_out = {_norm(q) for q in questions} | {
+        _norm(c["text"]) for c in cases["benign"] + cases["attack"]
+    }
+    assert not {_norm(c.question) for c in DEV} & held_out  # tune on dev, report on test
+
+
+@pytest.mark.parametrize("case", DEV, ids=lambda c: c.id)
+def test_classifier_dev_cases_reach_the_classifier(case: ClassifierDevCase) -> None:
+    assert check_rules(case.question) is None  # layer 1 would hide the classifier's verdict

@@ -3,6 +3,8 @@
 - ``gold.jsonl``: question / gold SQL pairs, tagged by category and difficulty.
 - ``adversarial.jsonl``: attacks, each with the first layer expected to stop it.
 - ``benign_tricky.jsonl``: legitimate questions that look suspicious (false-block rate).
+- ``classifier_dev.jsonl``: benign and attack examples for tuning the input classifier prompt;
+  kept apart from the two test sets above so they measure prompts honestly.
 """
 
 from collections.abc import Sequence
@@ -85,6 +87,15 @@ class BenignCase(_Record):
     known_false_block: str | None
 
 
+class ClassifierDevCase(_Record):
+    """A labelled example for tuning the classifier prompt (never used to report results)."""
+
+    id: str
+    label: Literal["benign", "attack"]
+    question: str
+    note: str
+
+
 def _load[T: _Record](model: type[T], path: Path) -> list[T]:
     lines = path.read_text(encoding="utf-8").splitlines()
     return [model.model_validate_json(line) for line in lines if line.strip()]
@@ -103,6 +114,11 @@ def load_adversarial(directory: Path = DATASETS_DIR) -> list[Attack]:
 def load_benign_tricky(directory: Path = DATASETS_DIR) -> list[BenignCase]:
     """All benign-but-suspicious questions."""
     return _load(BenignCase, directory / "benign_tricky.jsonl")
+
+
+def load_classifier_dev(directory: Path = DATASETS_DIR) -> list[ClassifierDevCase]:
+    """The classifier tuning set."""
+    return _load(ClassifierDevCase, directory / "classifier_dev.jsonl")
 
 
 def needs_review(pairs: Sequence[GoldPair]) -> list[GoldPair]:

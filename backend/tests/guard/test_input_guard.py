@@ -7,7 +7,7 @@ from structlog.testing import capture_logs
 
 from tests.guard.cases import BENIGN, CLASSIFIER_ATTACKS, RULE_ATTACKS, case_id
 from tests.support.fake_llm import FakeCompletion, llm_config, model_response
-from text2sql.guard.input_guard import InputClassification, check_input
+from text2sql.guard.input_guard import PROMPT_NAME, InputClassification, check_input
 from text2sql.llm.prompts import load_prompt
 
 
@@ -103,8 +103,16 @@ async def test_every_block_is_logged_with_category_but_not_the_question(
     assert marker not in repr(logs)
 
 
-def test_prompt_has_the_four_categories_and_treats_input_as_data() -> None:
-    system = load_prompt("input_guard_v1").system
+@pytest.mark.parametrize("version", ["input_guard_v1", "input_guard_v2"])
+def test_prompt_has_the_four_categories_and_treats_input_as_data(version: str) -> None:
+    system = load_prompt(version).system
     for category in ("data_question", "off_topic", "prompt_injection", "harmful"):
         assert f"`{category}`" in system
     assert "untrusted user input" in system
+
+
+def test_the_pipeline_uses_the_tuned_prompt() -> None:
+    assert PROMPT_NAME == "input_guard_v2"
+    system = load_prompt(PROMPT_NAME).system
+    # v2 separates instructions about the data from instructions about the assistant.
+    assert "what is being ignored, overridden or looked up" in system

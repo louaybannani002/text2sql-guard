@@ -17,7 +17,7 @@ from text2sql.observability.logging import get_logger
 
 log = get_logger(__name__)
 
-PROMPT_NAME = "input_guard_v1"
+PROMPT_NAME = "input_guard_v2"
 
 type ClassifierCategory = Literal["data_question", "off_topic", "prompt_injection", "harmful"]
 type InputCategory = ClassifierCategory | RuleCategory | Literal["guard_error"]
@@ -52,8 +52,8 @@ class InputVerdict(BaseModel):
     usage: Usage | None = Field(default=None, description="Classifier call; None for layer 1.")
 
 
-def _messages(question: str) -> list[Message]:
-    prompt = load_prompt(PROMPT_NAME)
+def _messages(question: str, prompt_name: str) -> list[Message]:
+    prompt = load_prompt(prompt_name)
     return [
         {"role": "system", "content": prompt.system},
         {"role": "user", "content": prompt.render_user(question=question.strip())},
@@ -72,12 +72,15 @@ def _blocked(verdict: InputVerdict, length: int) -> InputVerdict:
     return verdict
 
 
-async def check_input(question: str, *, config: LLMConfig | None = None) -> InputVerdict:
+async def check_input(
+    question: str, *, config: LLMConfig | None = None, prompt_name: str = PROMPT_NAME
+) -> InputVerdict:
     """Screen ``question`` before any retrieval or generation happens.
 
     Args:
         question: Raw user input.
         config: LLM configuration override (tests); defaults to the application settings.
+        prompt_name: Classifier prompt version; only evaluations compare other versions.
     """
     hit = check_rules(question)
     if hit is not None:
@@ -88,7 +91,7 @@ async def check_input(question: str, *, config: LLMConfig | None = None) -> Inpu
 
     try:
         result = await generate_structured(
-            _messages(question), InputClassification, "fast", config=config
+            _messages(question, prompt_name), InputClassification, "fast", config=config
         )
     except LLMError as exc:
         log.error("input_guard_unavailable", error=type(exc).__name__)  # noqa: TRY400 - no trace needed

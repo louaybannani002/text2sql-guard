@@ -145,8 +145,13 @@ make down        # stop services (`make down-volumes` also wipes data)
 - `check_input(question)` runs before anything else. Layer 1 (`guard/input_rules.py`, no LLM):
   max 500 chars, no control/invisible characters, SQL *statement shapes* (`DROP TABLE`,
   `DELETE FROM`, `UPDATE … SET`, `GRANT SELECT … TO`), injection phrases, prompt-tag forgery;
-  text is NFKC-normalised first. Layer 2 (`fast` model, prompt `input_guard_v1`) classifies
+  text is NFKC-normalised first. Layer 2 (`fast` model, prompt `input_guard_v2`) classifies
   `data_question | off_topic | prompt_injection | harmful`, only if layer 1 passed.
+  The prompt (`input_guard_v2`) asks *what* is ignored, overridden or looked up: the data, the
+  report or an order/product/seller id is a data question; the assistant's own rules, checks or
+  role is an injection; a person's identity or whereabouts is harmful. Tune prompts on
+  `eval/datasets/classifier_dev.jsonl` only; report with
+  `python -m text2sql.eval.input_guard_eval --set test` (the attack block rate must stay 100%).
 - Never match bare SQL keywords: "did revenue drop", "sellers grant installments" are real
   questions. Every new rule needs a benign counter-example in the tests.
 - Fails closed (`guard_error`) when the classifier is unavailable. Blocks are logged with
