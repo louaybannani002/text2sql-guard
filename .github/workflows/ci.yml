@@ -65,6 +65,7 @@ jobs:
     steps:
       - name: Skip without secrets
         if: env.HAS_SECRETS != 'true'
+        working-directory: ${{ github.workspace }}  # backend/ does not exist before checkout
         run: echo "::notice::eval-smoke skipped. Add OPENAI_API_KEY, KAGGLE_USERNAME and KAGGLE_KEY repository secrets to enable it."
       - uses: actions/checkout@v4
         if: env.HAS_SECRETS == 'true'
