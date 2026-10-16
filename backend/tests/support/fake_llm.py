@@ -1,12 +1,17 @@
 """A scripted stand-in for ``litellm.acompletion`` and helpers to build its responses."""
 
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from litellm import ModelResponse
 from pydantic import SecretStr
 
 from text2sql.llm import LLMConfig, RetryPolicy
+from text2sql.llm._litellm import litellm  # first: LiteLLM must not load .env (see _litellm)
+
+if TYPE_CHECKING:
+    from litellm import ModelResponse
+else:
+    ModelResponse = litellm.ModelResponse
 
 type Outcome = ModelResponse | BaseException | Callable[[], Awaitable[ModelResponse]]
 
@@ -22,7 +27,7 @@ def llm_config(**overrides: Any) -> LLMConfig:  # noqa: ANN401
         "embedding_model": "openai/text-embedding-3-small",
         "timeout_s": 5.0,
         "retry": RetryPolicy(max_retries=2, base_delay_s=0.0),
-        "openai_api_key": SecretStr("sk-test-not-a-real-key"),
+        "api_keys": {"openai": SecretStr("sk-test-not-a-real-key")},
         "local_api_base": "http://127.0.0.1:11434",
     }
     return LLMConfig(**(defaults | overrides))

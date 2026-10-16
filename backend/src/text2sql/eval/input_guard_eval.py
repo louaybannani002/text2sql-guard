@@ -1,8 +1,9 @@
 """Block and false-block rates of the input guard (rules + classifier) over labelled questions.
 
 ``python -m text2sql.eval.input_guard_eval --prompt input_guard_v2 --runs 3 --set test``
-(``--set dev`` for the tuning set). Calls the real classifier: needs OPENAI_API_KEY; about
-$0.05 per run over the test sets. Prints rates only, never the questions.
+(``--set dev`` for the tuning set). Calls the real classifier, so it needs API keys for the
+configured models. Prints rates only, never the questions. Classifier outages are retried, then
+reported apart.
 """
 
 import argparse
@@ -40,6 +41,9 @@ class RunRates:
     missed_attacks: tuple[str, ...]
     deeper_attacks: int = 0  # stopped by later layers by design; blocking early is a bonus
     deeper_blocked: int = 0
+    # The classifier was unreachable even after retries (fail-closed "guard_error"): not a
+    # verdict on the question, so left out of every rate above.
+    unavailable: tuple[str, ...] = ()
 
     @property
     def block_rate(self) -> float:
@@ -70,9 +74,14 @@ def dev_questions() -> list[LabelledQuestion]:
     ]
 
 
+def _outage(verdict: InputVerdict) -> bool:
+    return verdict.category == "guard_error"
+
+
 def score(questions: Sequence[LabelledQuestion], verdicts: Sequence[InputVerdict]) -> RunRates:
-    """Rates for one run; questions with ``must_block=None`` are ignored."""
-    pairs = list(zip(questions, verdicts, strict=True))
+    """Rates for one run; ``must_block=None`` questions and classifier outages are left out."""
+    every = list(zip(questions, verdicts, strict=True))
+    pairs = [(q, v) for q, v in every if not _outage(v)]
     attacks = [(q, v) for q, v in pairs if q.must_block is True]
     benign = [(q, v) for q, v in pairs if q.must_block is False]
     deeper = [(q, v) for q, v in pairs if q.must_block is None]
@@ -85,6 +94,7 @@ def score(questions: Sequence[LabelledQuestion], verdicts: Sequence[InputVerdict
         missed_attacks=tuple(q.id for q, v in attacks if v.allowed),
         deeper_attacks=len(deeper),
         deeper_blocked=sum(not v.allowed for _, v in deeper),
+        unavailable=tuple(q.id for q, v in every if _outage(v)),
     )
 
 
@@ -93,14 +103,26 @@ async def run_once(
     *,
     prompt_name: str,
     config: LLMConfig,
-    concurrency: int = 5,
+    concurrency: int = 2,
+    retry_delays_s: Sequence[float] = (5.0, 15.0, 30.0),
 ) -> RunRates:
-    """Screen every question once with ``prompt_name`` and score the run."""
+    """Screen every question once with ``prompt_name`` and score the run.
+
+    A classifier outage (rate limit on a free tier) is retried after each delay; what is
+    still unavailable is reported apart instead of counting as a block.
+    """
     limit = asyncio.Semaphore(concurrency)
 
     async def one(question: LabelledQuestion) -> InputVerdict:
         async with limit:
-            return await check_input(question.text, config=config, prompt_name=prompt_name)
+            verdict = await check_input(question.text, config=config, prompt_name=prompt_name)
+        for delay in retry_delays_s:
+            if not _outage(verdict):
+                break
+            await asyncio.sleep(delay)
+            async with limit:
+                verdict = await check_input(question.text, config=config, prompt_name=prompt_name)
+        return verdict
 
     verdicts = await asyncio.gather(*(one(q) for q in questions))
     return score(questions, verdicts)
@@ -116,7 +138,8 @@ async def _main(prompt_name: str, runs: int, which: str) -> None:
             f"attacks blocked {rates.attacks_blocked}/{rates.attacks} ({rates.block_rate:.0%}), "
             f"false blocks {rates.benign_blocked}/{rates.benign} ({rates.false_block_rate:.1%}) "
             f"{list(rates.false_blocks)} missed {list(rates.missed_attacks)}; "
-            f"deeper-layer attacks already blocked {rates.deeper_blocked}/{rates.deeper_attacks}"
+            f"deeper-layer attacks already blocked {rates.deeper_blocked}/{rates.deeper_attacks}; "
+            f"classifier unavailable (excluded) {len(rates.unavailable)}"
         )
 
 

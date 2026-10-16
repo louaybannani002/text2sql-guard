@@ -4,6 +4,9 @@ A prompt ``<name>`` is the pair ``<name>.system.md`` (static instructions) and
 ``<name>.user.md`` (a ``string.Template`` with ``$placeholders``). Never edit a released
 version in place: copy it to ``<name-without-version>_v<N+1>`` so behaviour changes are
 explicit in code and visible in git diffs.
+
+A system prompt may include a shared, versioned fragment with a line of its own:
+``{{include:glossary_v1}}`` is replaced by the content of ``glossary_v1.md``.
 """
 
 import re
@@ -13,6 +16,7 @@ from importlib.resources import files
 from string import Template
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*_v[0-9]+$")
+_INCLUDE = re.compile(r"^\{\{include:([a-z][a-z0-9_]*_v[0-9]+)\}\}$", re.MULTILINE)
 
 
 class PromptNotFoundError(LookupError):
@@ -45,6 +49,19 @@ def load_prompt(name: str) -> Prompt:
         raise PromptNotFoundError(msg)
     return Prompt(
         name=name,
-        system=system.read_text(encoding="utf-8").strip(),
+        system=_expand_includes(system.read_text(encoding="utf-8").strip()),
         user_template=Template(user.read_text(encoding="utf-8").strip()),
     )
+
+
+def _expand_includes(text: str) -> str:
+    folder = files(__package__)
+
+    def fragment(match: re.Match[str]) -> str:
+        path = folder / f"{match[1]}.md"
+        if not path.is_file():
+            msg = f"included prompt fragment {match[1]!r} not found ({match[1]}.md)"
+            raise PromptNotFoundError(msg)
+        return path.read_text(encoding="utf-8").strip()
+
+    return _INCLUDE.sub(fragment, text)

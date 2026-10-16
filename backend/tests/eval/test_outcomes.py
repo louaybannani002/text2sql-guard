@@ -39,6 +39,16 @@ def test_usage_from_the_trace() -> None:
     assert Usage.of(result) == Usage(total_ms=320.0, tokens=50, cost_usd=0.001, cache="exact")
 
 
+def test_usage_names_the_models_that_wrote_the_sql() -> None:
+    result = answer(
+        "answered",
+        stage("input_guard", models=("gemini/lite",)),
+        stage("generate", models=("groq/big",)),
+        stage("generate", models=("gemini/flash",)),
+    )
+    assert Usage.of(result).sql_models == ("groq/big", "gemini/flash")
+
+
 def test_block_flags() -> None:
     assert attack("a", "input_rules").blocked
     assert not attack("a", None).blocked

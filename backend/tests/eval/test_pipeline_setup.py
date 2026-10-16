@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 
 from text2sql.config.settings import Settings
 from text2sql.eval.pipeline_setup import llm_for, local_model_reachable
@@ -10,6 +11,14 @@ def test_local_choice_swaps_only_the_generation_model(settings: Settings) -> Non
     assert main.models["main"] == settings.llm_model_main
     assert local.models["main"] == settings.llm_model_local
     assert local.models["fast"] == main.models["fast"]  # same input classifier
+
+
+def test_fallbacks_can_be_turned_off(settings: Settings) -> None:
+    settings = settings.model_copy(update={"llm_fallback_main": "groq/big"})
+    assert llm_for(settings, "main").fallbacks == {"main": "groq/big"}
+    without = llm_for(settings, "main", fallbacks=False)
+    assert without.fallbacks == {}
+    assert dataclasses.replace(without, fallbacks={"main": "groq/big"}) == llm_for(settings, "main")
 
 
 async def test_local_model_reachable() -> None:

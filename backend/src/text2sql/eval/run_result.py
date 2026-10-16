@@ -21,6 +21,8 @@ class RunInfo:
     smoke: bool
     git_commit: str
     duration_s: float
+    run_name: str = ""
+    resumed: int = 0  # questions already answered by an earlier, interrupted invocation
 
 
 @dataclass(frozen=True)

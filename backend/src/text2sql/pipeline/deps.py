@@ -5,9 +5,11 @@ from typing import Protocol
 
 from text2sql.cache.query_cache import QueryCache
 from text2sql.executor.executor import QueryResult
+from text2sql.guard.input_guard import PROMPT_NAME as GUARD_PROMPT
 from text2sql.guard.sql_policy import SqlPolicy
 from text2sql.guard.sql_validator import ValidatedSql
 from text2sql.llm import LLMConfig
+from text2sql.pipeline.generate import PROMPT_NAME as GENERATE_PROMPT
 from text2sql.retrieval.embedding import Embedder
 from text2sql.retrieval.retriever import ConnectionSource
 
@@ -33,3 +35,5 @@ class OrchestratorDeps:
     max_retries: int = 2
     k: int = 5
     cache: QueryCache | None = None  # None: no caching
+    generate_prompt: str = GENERATE_PROMPT  # prompt versions; evaluations compare them
+    guard_prompt: str = GUARD_PROMPT

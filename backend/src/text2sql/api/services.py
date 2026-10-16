@@ -92,6 +92,9 @@ type ServicesFactory = Callable[[Settings], Awaitable[Services]]
 async def build_services(settings: Settings) -> Services:
     """Open pools and clients (catalog as t2s_app, executor as t2s_reader, Redis)."""
     llm = LLMConfig.from_settings(settings)
+    if missing := llm.missing_keys():
+        msg = f"no API key for: {', '.join(missing)}"
+        raise RuntimeError(msg)
     # Pay for LiteLLM's lazy SDK import now: inside a request it would freeze the event loop.
     await warm_up(llm.models["main"])
     catalog = await create_pool(settings.app_database_url, max_size=5)

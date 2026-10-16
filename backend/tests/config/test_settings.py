@@ -8,7 +8,6 @@ SECRET_VARS = [
     "REDIS_URL",
     "READER_DATABASE_URL",
     "APP_DATABASE_URL",
-    "OPENAI_API_KEY",
     "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_SECRET_KEY",
 ]
@@ -16,7 +15,9 @@ SECRET_VARS = [
 
 def test_loads_from_env(settings: Settings) -> None:
     assert settings.app_env == "test"
+    assert settings.openai_api_key is not None
     assert settings.openai_api_key.get_secret_value() == "sk-test-not-a-real-key"
+    assert settings.gemini_api_key is None  # provider keys are optional
     assert str(settings.langfuse_host).startswith("https://langfuse.example.com")
 
 

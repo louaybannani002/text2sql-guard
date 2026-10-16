@@ -7,12 +7,14 @@ from text2sql.pipeline.answer import Answer, AnswerStatus
 from text2sql.pipeline.trace import StageTrace, Trace
 
 
-def stage(
+def stage(  # noqa: PLR0913 - test builder, keyword arguments
     name: str,
     status: str = "ok",
     output: dict[str, JsonValue] | None = None,
     error: str | None = None,
+    *,
     tokens: int = 0,
+    models: tuple[str, ...] = (),
 ) -> StageTrace:
     return StageTrace(
         stage=name,  # type: ignore[arg-type]  # parametrised in tests
@@ -24,6 +26,7 @@ def stage(
         tokens=tokens,
         cost_usd=0.001 if tokens else 0.0,
         error=error,
+        models=list(models),
     )
 
 

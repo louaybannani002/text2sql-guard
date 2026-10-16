@@ -11,11 +11,13 @@ from text2sql.config.settings import get_settings
 from text2sql.llm._litellm import litellm
 from text2sql.llm.calls import call_with_retries
 from text2sql.llm.config import LLMConfig, ModelTarget
-from text2sql.llm.errors import LLMOutputValidationError
+from text2sql.llm.errors import LLMOutputValidationError, LLMProviderError
 from text2sql.llm.types import LLMResult, Message, ModelRole, Usage
 from text2sql.observability.logging import get_logger
 
 log = get_logger(__name__)
+
+_RATE_LIMITED = 429
 
 # Some models (notably local ones) wrap JSON in a Markdown code fence despite instructions.
 _CODE_FENCE = re.compile(r"^\s*```(?:json)?\s*\n(?P<body>.*?)\n?\s*```\s*$", re.DOTALL)
@@ -33,7 +35,8 @@ async def generate_structured[T: BaseModel](
     Args:
         messages: Chat history; the last message is normally the user request.
         response_model: Pydantic model the answer must satisfy (sent as a JSON schema).
-        model_role: Which configured model to use: ``main``, ``fast`` or ``local``.
+        model_role: Which configured model to use: ``main``, ``fast`` or ``local``. When that
+            model is rate limited (HTTP 429) and the role has a fallback, the fallback answers.
         config: Override for tests; defaults to the application settings.
 
     Raises:
@@ -43,21 +46,34 @@ async def generate_structured[T: BaseModel](
     """
     config = config or LLMConfig.from_settings(get_settings())
     target = config.target(model_role)
+    fallback = config.fallback_target(model_role)
     started = time.perf_counter()
-    response, attempts = await _complete_with_retries(
-        messages, response_model, model_role, target, config
-    )
+    try:
+        response, attempts = await _complete_with_retries(
+            messages, response_model, model_role, target, config, retry_rate_limits=fallback is None
+        )
+    except LLMProviderError as exc:
+        if fallback is None or exc.status_code != _RATE_LIMITED:
+            raise
+        log.warning("llm_fallback", role=model_role, model=target.model, fallback=fallback.model)
+        target = fallback
+        response, attempts = await _complete_with_retries(
+            messages, response_model, model_role, target, config
+        )
+        attempts += exc.attempts
     usage = _usage(response, model_role, target.model, started, attempts)
     log.info("llm_call", **usage.model_dump(), schema=response_model.__name__)
     return LLMResult(_validate(response, response_model, usage), usage)
 
 
-async def _complete_with_retries(
+async def _complete_with_retries(  # noqa: PLR0913 - explicit inputs of one call
     messages: Sequence[Message],
     response_model: type[BaseModel],
     role: ModelRole,
     target: ModelTarget,
     config: LLMConfig,
+    *,
+    retry_rate_limits: bool = True,
 ) -> tuple[Any, int]:
     return await call_with_retries(
         lambda: litellm.acompletion(
@@ -73,6 +89,7 @@ async def _complete_with_retries(
         role=role,
         model=target.model,
         config=config,
+        retry_rate_limits=retry_rate_limits,
     )
 
 

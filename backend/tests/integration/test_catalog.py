@@ -77,7 +77,7 @@ async def test_state_records_version_and_counts(admin: asyncpg.Connection) -> No
     assert (row["embedding_model"], row["documents"], row["examples"]) == (
         FAKE_EMBEDDING_MODEL,
         10,
-        20,
+        len(SEEDS),
     )
 
 
@@ -104,11 +104,11 @@ async def test_reembeds_only_what_changed(admin: asyncpg.Connection) -> None:
     examples = [replace(SEEDS[0], question="How many orders per month in 2017?"), *SEEDS[2:]]
     report = await _build(admin, FakeEmbedder(), examples)
     assert (report.docs_embedded, report.examples_embedded, report.examples_deleted) == (0, 1, 1)
-    assert await admin.fetchval("SELECT count(*) FROM app.examples") == 19
+    assert await admin.fetchval("SELECT count(*) FROM app.examples") == len(SEEDS) - 1
 
     forced = FakeEmbedder()
     await _build(admin, forced, examples, force=True)
-    assert forced.embedded == 10 + 19
+    assert forced.embedded == 10 + len(SEEDS) - 1
 
 
 # ---------------------------------------------------------------- search & access
@@ -151,7 +151,7 @@ async def test_reader_cannot_read_catalog(reader: asyncpg.Connection) -> None:
 
 async def test_app_role_can_read_catalog(app: asyncpg.Connection) -> None:
     assert await app.fetchval("SELECT count(*) FROM app.schema_docs") == 10
-    assert await app.fetchval("SELECT count(*) FROM app.examples") == 20
+    assert await app.fetchval("SELECT count(*) FROM app.examples") == len(SEEDS)
 
 
 # ---------------------------------------------------------------- the reviewed examples

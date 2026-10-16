@@ -88,6 +88,7 @@ async def _generate(
             context.examples,
             previous_attempts=failures,
             config=deps.llm,
+            prompt_name=deps.generate_prompt,
         )
         draft = generated.output
         stage.usage.append(generated.usage)

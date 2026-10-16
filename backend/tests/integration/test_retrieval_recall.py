@@ -1,7 +1,7 @@
 """Retrieval quality eval: recall@k on 15 labelled questions, with real embeddings.
 
-Runs only with `make test-integration` and an OPENAI_API_KEY. The catalog is rebuilt with the
-real embedding model inside the test's rolled-back transaction (~3,900 tokens, < $0.0001).
+Runs only with `make test-integration` and API keys for the configured models. The catalog is
+rebuilt with the real embedding model inside the test's rolled-back transaction (~3,900 tokens).
 """
 
 import tomllib
@@ -33,14 +33,14 @@ def _live_settings() -> Settings | None:
         settings = Settings()  # environment, then backend/.env
     except ValidationError:
         return None
-    return settings if settings.openai_api_key.get_secret_value() else None
+    return None if LLMConfig.from_settings(settings).missing_keys() else settings
 
 
 LIVE = _live_settings()
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(LIVE is None, reason="OPENAI_API_KEY is not set"),
+    pytest.mark.skipif(LIVE is None, reason="no API key for the configured models"),
 ]
 
 

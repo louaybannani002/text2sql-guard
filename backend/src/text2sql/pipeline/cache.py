@@ -18,7 +18,6 @@ from text2sql.llm.types import Usage
 from text2sql.observability.logging import get_logger
 from text2sql.pipeline.answer import Answer
 from text2sql.pipeline.deps import OrchestratorDeps
-from text2sql.pipeline.generate import PROMPT_NAME
 from text2sql.pipeline.run import RunState
 from text2sql.pipeline.stages import execute_stage, validate_stage
 from text2sql.pipeline.trace import StageRun
@@ -91,7 +90,7 @@ async def open_cache(run: RunState, deps: OrchestratorDeps) -> CacheSession | No
             return None  # no catalog yet: retrieval reports it
         scope = CacheScope(
             schema_version=schema_version,
-            prompt_version=PROMPT_NAME,
+            prompt_version=deps.generate_prompt,
             model=deps.llm.models["main"],
             embedding_model=deps.llm.embedding_model,
         )

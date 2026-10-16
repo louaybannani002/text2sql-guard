@@ -48,6 +48,7 @@ async def test_successful_stage(tracer: Tracer, events: list[StageEvent]) -> Non
     assert stage.input == {"previous_failures": 1}
     assert stage.output == {"answerable": True}
     assert stage.latency_ms >= 0
+    assert stage.models == ["m"]
 
 
 async def test_soft_failure_emits_error_event(tracer: Tracer, events: list[StageEvent]) -> None:

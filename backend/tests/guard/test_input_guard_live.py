@@ -16,14 +16,15 @@ def _live_config() -> LLMConfig | None:
         settings = Settings()  # environment, then backend/.env
     except ValidationError:
         return None
-    return LLMConfig.from_settings(settings) if settings.openai_api_key.get_secret_value() else None
+    config = LLMConfig.from_settings(settings)
+    return None if config.missing_keys() else config
 
 
 LIVE_CONFIG = _live_config()
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(LIVE_CONFIG is None, reason="OPENAI_API_KEY is not set"),
+    pytest.mark.skipif(LIVE_CONFIG is None, reason="no API key for the configured models"),
 ]
 
 

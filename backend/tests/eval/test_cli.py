@@ -6,13 +6,24 @@ import pytest
 from tests.eval.test_report import _result
 from text2sql.config.settings import Settings
 from text2sql.eval import cli
+from text2sql.eval.session import PROVIDER_DOWN
+from text2sql.guard.input_guard import PROMPT_NAME as GUARD_PROMPT
+from text2sql.pipeline.generate import PROMPT_NAME as GENERATE_PROMPT
 
 
 def test_parse_args_defaults() -> None:
     args = cli.parse_args([])
     assert (args.model, args.smoke, args.concurrency, args.no_cache) == ("main", False, 2, False)
+    assert (args.prompt, args.guard_prompt, args.run_name, args.fresh) == (
+        GENERATE_PROMPT,
+        GUARD_PROMPT,
+        None,
+        False,
+    )
     assert args.datasets == ["gold", "adversarial", "benign"]
     assert args.out_dir == cli.DEFAULT_OUT
+    assert cli.options_from(args).fallbacks
+    assert not cli.options_from(cli.parse_args(["--no-fallback"])).fallbacks
 
 
 def test_skipped_run_explains_why(settings: Settings) -> None:
@@ -25,7 +36,7 @@ def test_skipped_run_explains_why(settings: Settings) -> None:
 def patched(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> list[str]:
     calls: list[str] = []
 
-    async def fake_evaluate(_settings: Settings, choice: str, **_kwargs: object) -> object:
+    async def fake_evaluate(_settings: Settings, choice: str, _options: object) -> object:
         calls.append(choice)
         return _result(smoke=True, choice=choice)
 
@@ -62,9 +73,9 @@ async def test_local_only_and_unreachable_is_an_error(patched: list[str], tmp_pa
 async def test_a_dead_provider_aborts_with_exit_code_3(
     monkeypatch: pytest.MonkeyPatch, settings: Settings, tmp_path: Path
 ) -> None:
-    async def provider_down(_settings: Settings, choice: str, **_kwargs: object) -> object:
+    async def provider_down(_settings: Settings, choice: str, _options: object) -> object:
         result = _result(choice=choice)
-        metrics = dataclasses.replace(result.metrics, notes=[cli.PROVIDER_DOWN])
+        metrics = dataclasses.replace(result.metrics, notes=[PROVIDER_DOWN])
         return dataclasses.replace(result, metrics=metrics)
 
     monkeypatch.setattr(cli, "get_settings", lambda: settings)

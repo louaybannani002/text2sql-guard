@@ -100,14 +100,28 @@ make down        # stop services (`make down-volumes` also wipes data)
   validation — the latter carries `raw_output`, `errors` and the `usage` already spent).
 - The API calls `text2sql.llm.warmup.warm_up` at startup: LiteLLM imports the provider SDK
   lazily on its first call, which would otherwise freeze the event loop inside a request.
-- Import LiteLLM only via `text2sql.llm._litellm` (it pins the offline price map and disables
-  telemetry before LiteLLM loads). Never log prompts or raw model output.
+- Import LiteLLM only via `text2sql.llm._litellm` (it pins the offline price map, disables
+  telemetry and sets `LITELLM_MODE=PRODUCTION` before LiteLLM loads; in its default dev mode
+  LiteLLM runs `load_dotenv()`, which would copy `.env` secrets into `os.environ` and into
+  tests). Never log prompts or raw model output.
+- Providers: each model's key comes from its provider prefix (`OPENAI_API_KEY`,
+  `GEMINI_API_KEY`, `GROQ_API_KEY`; Ollama needs none). `LLMConfig.missing_keys()` lists the
+  missing ones; startup fails and live tests skip on it. `LLM_FALLBACK_MAIN` / `_FAST` (optional)
+  name a model used immediately when the primary answers HTTP 429; the 429 is not retried on
+  the primary. Embeddings must stay 1536-dimensional (`LLM_EMBEDDING_DIMENSIONS`, passed to the
+  provider); changing the embedding model needs `make catalog FORCE=1`.
 - Prompts live in `src/text2sql/llm/prompts/<name>_v<N>.system.md` + `.user.md` (a
   `string.Template`), loaded with `load_prompt("<name>_v<N>")`; the caller pins the version
   (e.g. `PROMPT_NAME = "generate_v1"` in `pipeline/generate.py`). Never change a released
   version's meaning in place — add `_v<N+1>` and switch the constant, so the change is one
   reviewable diff and old runs stay reproducible. User input goes only into the user template,
   inside tags (`<question>`), never into the system prompt.
+- A system prompt can include a shared fragment with a line `{{include:<name>_v<N>}}`
+  (e.g. `glossary_v1.md`, the business glossary in `generate_v3`). Fragments are versioned
+  like prompts: change a definition by adding `glossary_v2` and a new prompt version, and keep
+  it consistent with `backend/db/seeds/examples.toml`.
+- `PipelineDeps.generate_prompt` / `guard_prompt` choose the prompt versions per pipeline (the
+  defaults are the modules' `PROMPT_NAME`); the query cache is keyed on the generation prompt.
 
 ## Retrieval catalog (`make catalog`)
 
@@ -266,6 +280,15 @@ make down        # stop services (`make down-volumes` also wipes data)
   refusal, validator, executor limits, database); "answered safely" (validated read-only SQL
   ran) and pipeline failures are reported separately, never as blocks.
 - Change `smoke.json` only with a reason: CI thresholds depend on it.
+- Runs are resumable (free tiers): every outcome is appended to
+  `eval/reports/runs/<run-name>/outcomes.jsonl` (default name: model + prompts + flags). The same
+  command skips answered questions and re-asks those that hit an outage; `--fresh` starts
+  over. `--prompt` / `--guard-prompt` evaluate other prompt versions; compare prompts with
+  `--no-fallback`, or a rate limit silently swaps in the fallback model mid-run. Provider outages are
+  retried, then recorded as infrastructure errors and excluded from every rate.
+- `python -m text2sql.eval.compare_runs --run TITLE REPORT.json ...` recomputes the same
+  metrics for several reports side by side (`--gold-only TITLE` for a run whose guardrail phase
+  was hit by outages).
 
 ## Integration tests
 

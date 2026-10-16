@@ -9,6 +9,8 @@
 # - Revenue = SUM(order_items.price), excluding freight, over delivered orders.
 # - Late = delivered (date) after order_estimated_delivery_date.
 # - Order date = order_purchase_timestamp.
+# - Order-level metrics by default; delivery metrics over delivered orders; cities with their
+#   state. Full definitions: src/text2sql/llm/prompts/glossary_v1.md.
 
 [[example]]
 id = "orders_per_month"
@@ -294,4 +296,184 @@ FROM shop.orders AS o
 WHERE o.order_status = 'canceled'
 GROUP BY 1
 ORDER BY 1
+"""
+
+# ---------------------------------------------------------------------------------------------
+# Glossary conventions (llm/prompts/glossary_v1.md), one example each. Added 2026-10-14.
+
+[[example]]
+id = "orders_with_several_sellers"
+question = "How many orders include items from more than one seller?"
+sql = """
+WITH sellers_per_order AS (
+    SELECT oi.order_id,
+           count(DISTINCT oi.seller_id) AS sellers
+    FROM shop.order_items AS oi
+    GROUP BY oi.order_id
+)
+SELECT count(*) FILTER (WHERE spo.sellers > 1) AS multi_seller_orders,
+       count(*) AS orders_with_items
+FROM sellers_per_order AS spo
+"""
+
+[[example]]
+id = "revenue_per_delivered_order_by_state"
+question = "What is the average revenue per delivered order in each customer state?"
+sql = """
+WITH order_revenue AS (
+    -- One row per order first: averaging item rows would weight big orders more.
+    SELECT o.order_id,
+           c.customer_state,
+           sum(oi.price) AS revenue
+    FROM shop.orders AS o
+    JOIN shop.customers AS c ON c.customer_id = o.customer_id
+    JOIN shop.order_items AS oi ON oi.order_id = o.order_id
+    WHERE o.order_status = 'delivered'
+    GROUP BY o.order_id, c.customer_state
+)
+SELECT orv.customer_state,
+       round(avg(orv.revenue), 2) AS avg_revenue_per_order
+FROM order_revenue AS orv
+GROUP BY orv.customer_state
+ORDER BY avg_revenue_per_order DESC, orv.customer_state
+"""
+
+[[example]]
+id = "freight_by_seller_city"
+question = "What is the average freight per item for seller cities with at least 10 sellers?"
+sql = """
+SELECT s.seller_city,
+       s.seller_state,
+       round(avg(oi.freight_value), 2) AS avg_freight
+FROM shop.order_items AS oi
+JOIN shop.sellers AS s ON s.seller_id = oi.seller_id
+GROUP BY s.seller_city, s.seller_state
+HAVING count(DISTINCT s.seller_id) >= 10
+ORDER BY avg_freight DESC, s.seller_city
+"""
+
+[[example]]
+id = "late_share_by_seller_state"
+question = "For each seller state, what share of delivered orders arrived late?"
+sql = """
+WITH seller_orders AS (
+    -- One row per (seller state, order): a 3-item order counts once, not three times.
+    SELECT DISTINCT s.seller_state,
+                    o.order_id,
+                    o.order_delivered_customer_date::date > o.order_estimated_delivery_date
+                        AS is_late
+    FROM shop.orders AS o
+    JOIN shop.order_items AS oi ON oi.order_id = o.order_id
+    JOIN shop.sellers AS s ON s.seller_id = oi.seller_id
+    WHERE o.order_status = 'delivered'
+      AND o.order_delivered_customer_date IS NOT NULL
+)
+SELECT so.seller_state,
+       count(*) AS delivered_orders,
+       round(100.0 * count(*) FILTER (WHERE so.is_late) / count(*), 1) AS late_pct
+FROM seller_orders AS so
+GROUP BY so.seller_state
+ORDER BY late_pct DESC, so.seller_state
+"""
+
+[[example]]
+id = "deliveries_per_month"
+question = "How many orders reached customers in each month of 2018?"
+sql = """
+-- "Reached customers in" is about the delivery date, not the order date.
+SELECT date_trunc('month', o.order_delivered_customer_date)::date AS delivery_month,
+       count(*) AS delivered_orders
+FROM shop.orders AS o
+WHERE o.order_delivered_customer_date >= DATE '2018-01-01'
+  AND o.order_delivered_customer_date < DATE '2019-01-01'
+GROUP BY 1
+ORDER BY 1
+"""
+
+[[example]]
+id = "orders_per_quarter"
+question = "How many orders were placed in each quarter of 2017?"
+sql = """
+-- Order volume counts every status; the order date is the purchase timestamp.
+SELECT date_trunc('quarter', o.order_purchase_timestamp)::date AS quarter,
+       count(*) AS orders
+FROM shop.orders AS o
+WHERE o.order_purchase_timestamp >= DATE '2017-01-01'
+  AND o.order_purchase_timestamp < DATE '2018-01-01'
+GROUP BY 1
+ORDER BY 1
+"""
+
+[[example]]
+id = "top_products_units_sp"
+question = "Which 5 products sold the most units to customers in São Paulo state?"
+sql = """
+-- Units are item rows: one shop.order_items row is one unit sold.
+SELECT oi.product_id,
+       count(*) AS units
+FROM shop.order_items AS oi
+JOIN shop.orders AS o ON o.order_id = oi.order_id
+JOIN shop.customers AS c ON c.customer_id = o.customer_id
+WHERE c.customer_state = 'SP'
+GROUP BY oi.product_id
+ORDER BY units DESC, oi.product_id
+LIMIT 5
+"""
+
+[[example]]
+id = "amount_paid_per_year"
+question = "How much did customers pay in total each year?"
+sql = """
+-- Amount paid = payment values (freight and instalment interest included), not revenue.
+SELECT extract(year FROM o.order_purchase_timestamp)::int AS year,
+       sum(op.payment_value) AS amount_paid
+FROM shop.order_payments AS op
+JOIN shop.orders AS o ON o.order_id = op.order_id
+GROUP BY 1
+ORDER BY 1
+"""
+
+[[example]]
+id = "review_score_free_shipping"
+question = "Do orders with free shipping get better review scores than orders that paid freight?"
+sql = """
+WITH order_freight AS (
+    SELECT oi.order_id,
+           sum(oi.freight_value) AS freight
+    FROM shop.order_items AS oi
+    GROUP BY oi.order_id
+)
+SELECT CASE WHEN ofr.freight = 0 THEN 'free shipping' ELSE 'paid freight' END AS shipping,
+       count(*) AS reviews,
+       round(avg(r.review_score), 2) AS avg_review_score
+FROM shop.order_reviews AS r
+JOIN order_freight AS ofr ON ofr.order_id = r.order_id
+GROUP BY 1
+ORDER BY 1
+"""
+
+[[example]]
+id = "delivery_days_by_category"
+question = "What is the average delivery time in days for product categories with at least 500 delivered orders?"
+sql = """
+WITH category_orders AS (
+    -- One row per (category, order): an order's delivery time counts once per category.
+    SELECT DISTINCT pc.product_category_name_english AS category,
+                    o.order_id,
+                    extract(epoch FROM o.order_delivered_customer_date
+                                       - o.order_purchase_timestamp) / 86400 AS delivery_days
+    FROM shop.orders AS o
+    JOIN shop.order_items AS oi ON oi.order_id = o.order_id
+    JOIN shop.products AS p ON p.product_id = oi.product_id
+    JOIN shop.product_categories AS pc ON pc.product_category_name = p.product_category_name
+    WHERE o.order_status = 'delivered'
+      AND o.order_delivered_customer_date IS NOT NULL
+)
+SELECT co.category,
+       count(*) AS delivered_orders,
+       round(avg(co.delivery_days)::numeric, 1) AS avg_delivery_days
+FROM category_orders AS co
+GROUP BY co.category
+HAVING count(*) >= 500
+ORDER BY avg_delivery_days DESC, co.category
 """

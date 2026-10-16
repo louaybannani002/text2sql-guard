@@ -85,9 +85,11 @@ def build_messages(
     schema_context: str,
     examples: Sequence[FewShotExample],
     previous_attempts: Sequence[FailedAttempt] = (),
+    *,
+    prompt_name: str = PROMPT_NAME,
 ) -> list[Message]:
-    """System + user messages for the ``generate`` prompt."""
-    prompt = load_prompt(PROMPT_NAME)
+    """System + user messages for the ``generate`` prompt (``prompt_name`` version)."""
+    prompt = load_prompt(prompt_name)
     user = prompt.render_user(
         schema_context=schema_context.strip(),
         examples=render_examples(examples),
@@ -97,13 +99,14 @@ def build_messages(
     return [{"role": "system", "content": prompt.system}, {"role": "user", "content": user}]
 
 
-async def generate_sql(
+async def generate_sql(  # noqa: PLR0913 - keyword-only inputs of one call
     question: str,
     schema_context: str,
     examples: Sequence[FewShotExample],
     *,
     previous_attempts: Sequence[FailedAttempt] = (),
     config: LLMConfig | None = None,
+    prompt_name: str = PROMPT_NAME,
 ) -> LLMResult[SqlDraft]:
     """Draft SQL answering ``question``, using only what ``schema_context`` describes.
 
@@ -114,6 +117,7 @@ async def generate_sql(
         examples: Few-shot question/SQL pairs; may be empty.
         previous_attempts: Earlier SQL for this question and why it failed, for a repair.
         config: LLM configuration override (tests).
+        prompt_name: Prompt version; the pipeline passes ``OrchestratorDeps.generate_prompt``.
 
     Returns:
         The draft and the ``Usage`` of the model call.
@@ -122,7 +126,9 @@ async def generate_sql(
         LLMError: Any failure of the model call, including output that does not fit SqlDraft.
     """
     result = await generate_structured(
-        build_messages(question, schema_context, examples, previous_attempts),
+        build_messages(
+            question, schema_context, examples, previous_attempts, prompt_name=prompt_name
+        ),
         SqlDraft,
         "main",
         config=config,
@@ -130,7 +136,7 @@ async def generate_sql(
     draft = result.output
     log.info(
         "sql_drafted",
-        prompt=PROMPT_NAME,
+        prompt=prompt_name,
         answerable=draft.answerable,
         confidence=draft.confidence,
         tables_used=draft.tables_used,

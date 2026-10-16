@@ -22,6 +22,10 @@ uv run python ../eval/run_eval.py --datasets gold --limit 10 --no-cache
 | `--concurrency` | Questions in flight (default 2; higher values hit provider rate limits) |
 | `--no-cache` | Bypass the query cache: fresh generations, honest latency |
 | `--limit N` | First N questions of each dataset |
+| `--prompt`, `--guard-prompt` | Generation / input-classifier prompt versions (default: the pipeline's current ones) |
+| `--run-name` | Checkpoint name (default: model + prompts + `smoke` / `nocache`) |
+| `--fresh` | Discard the run's checkpoint and start over |
+| `--no-fallback` | Ignore `LLM_FALLBACK_*`: a rate-limited model is retried later, never replaced, so every answer comes from the evaluated models (use it to compare prompts) |
 
 Exit codes: 0 done, 1 smoke thresholds missed, 2 nothing could be evaluated, 3 aborted.
 
@@ -30,6 +34,17 @@ Exit codes: 0 done, 1 smoke thresholds missed, 2 nothing could be evaluated, 3 a
   API. It reports the rest as infrastructure errors and exits with code 3, typically because of
   an exhausted quota.
 - **Progress:** each finished question prints a line on stderr.
+- **Resume:** each outcome is appended to `reports/runs/<run-name>/outcomes.jsonl`. Running the
+  same command again (for example the next day, when a free-tier quota resets) skips the
+  questions already answered and re-asks only those that hit an outage. The report always
+  covers every recorded outcome.
+
+Compare reports side by side (the metrics are recomputed from the per-question records, so
+every column uses the same definitions):
+
+```sh
+uv run python -m text2sql.eval.compare_runs --run "v2" reports/a.json --run "v3" reports/b.json
+```
 
 ## Output
 

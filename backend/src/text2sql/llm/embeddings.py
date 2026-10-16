@@ -50,6 +50,7 @@ async def embed_texts(texts: Sequence[str], *, config: LLMConfig | None = None) 
         lambda: litellm.aembedding(
             model=target.model,
             input=list(texts),
+            dimensions=config.embedding_dimensions,
             timeout=config.timeout_s,
             api_key=target.api_key.get_secret_value() if target.api_key else None,
             api_base=target.api_base,

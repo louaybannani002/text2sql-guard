@@ -35,7 +35,7 @@ async def answer(
 
 async def _answer(run: RunState, deps: OrchestratorDeps) -> Answer:
     async with run.tracer.stage("input_guard", 1, {"question_chars": len(run.question)}) as stage:
-        verdict = await check_input(run.question, config=deps.llm)
+        verdict = await check_input(run.question, config=deps.llm, prompt_name=deps.guard_prompt)
         stage.usage += [verdict.usage] if verdict.usage else []
         stage.output = {
             "allowed": verdict.allowed,

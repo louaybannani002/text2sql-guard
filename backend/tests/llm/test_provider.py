@@ -219,3 +219,52 @@ async def test_refusal_is_reported(fake_llm: Callable[..., FakeCompletion]) -> N
     with pytest.raises(LLMOutputValidationError) as caught:
         await generate_structured(MESSAGES, Answer, "fast", config=_config())
     assert caught.value.refusal == "I can't help with that."
+
+
+# ---------------------------------------------------------------- rate-limit fallback
+
+
+async def test_rate_limit_switches_to_the_fallback_at_once(
+    fake_llm: Callable[..., FakeCompletion],
+) -> None:
+    from pydantic import SecretStr  # noqa: PLC0415
+
+    completion = fake_llm(
+        llm_exc.RateLimitError("quota", "gemini", "gemini-3.5-flash-lite"),
+        _response('{"country": "BR", "orders": 1}', model="openai/gpt-oss-20b"),
+    )
+    config = _config(
+        fallbacks={"fast": "groq/openai/gpt-oss-20b"},
+        api_keys={"openai": SecretStr("sk-test"), "groq": SecretStr("gq-test")},
+    )
+    result = await generate_structured(MESSAGES, Answer, "fast", config=config)
+
+    assert result.output.country == "BR"
+    assert result.usage.model == "groq/openai/gpt-oss-20b"
+    assert result.usage.attempts == 2  # one rate-limited call, no retry of it, then the fallback
+    assert [c["model"] for c in completion.calls] == [
+        "openai/gpt-5.4-mini",
+        "groq/openai/gpt-oss-20b",
+    ]
+    assert completion.calls[1]["api_key"] == "gq-test"
+
+
+async def test_other_errors_do_not_use_the_fallback(
+    fake_llm: Callable[..., FakeCompletion],
+) -> None:
+    fake_llm(llm_exc.BadRequestError("bad", "openai", "gpt-5.4-mini"))
+    config = _config(fallbacks={"fast": "groq/openai/gpt-oss-20b"})
+    with pytest.raises(LLMProviderError):
+        await generate_structured(MESSAGES, Answer, "fast", config=config)
+
+
+async def test_without_a_fallback_rate_limits_are_retried(
+    fake_llm: Callable[..., FakeCompletion],
+) -> None:
+    completion = fake_llm(
+        llm_exc.RateLimitError("slow", "openai", "gpt-5.4-mini"),
+        _response('{"country": "BR", "orders": 1}'),
+    )
+    result = await generate_structured(MESSAGES, Answer, "fast", config=_config())
+    assert result.usage.attempts == 2
+    assert {c["model"] for c in completion.calls} == {"openai/gpt-5.4-mini"}

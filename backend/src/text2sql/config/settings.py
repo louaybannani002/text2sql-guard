@@ -74,13 +74,21 @@ class Settings(BaseSettings):
     cache_semantic_threshold: float = Field(default=0.95, gt=0, le=1)  # min cosine similarity
     cache_semantic_max_entries: int = Field(default=1000, ge=1)  # per namespace, oldest evicted
 
-    # LLM
-    openai_api_key: SecretStr
+    # LLM. One key per provider; only the providers of the configured models need one
+    # (LLMConfig.missing_keys() is checked at startup).
+    openai_api_key: SecretStr | None = None
+    gemini_api_key: SecretStr | None = None
+    groq_api_key: SecretStr | None = None
     # LiteLLM model names per role ("provider/model"); swap models via env, not code.
     llm_model_main: str
     llm_model_fast: str
     llm_model_local: str
-    llm_embedding_model: str  # its dimension must match app.*.embedding (1536)
+    # Used automatically when the role's model is rate limited (HTTP 429). Optional.
+    llm_fallback_main: str | None = None
+    llm_fallback_fast: str | None = None
+    llm_embedding_model: str
+    # Requested from the provider; must match app.*.embedding (vector(1536), migration 0008).
+    llm_embedding_dimensions: int = Field(default=1536, ge=1)
     llm_local_api_base: str | None = None  # e.g. http://127.0.0.1:11434 for Ollama
     llm_timeout_s: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0, le=5)

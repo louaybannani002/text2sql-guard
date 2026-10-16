@@ -61,3 +61,32 @@ async def test_run_once_uses_the_requested_prompt(monkeypatch: pytest.MonkeyPatc
     )
     assert used == ["input_guard_v1"]
     assert rates.false_block_rate == 0.0
+
+
+def test_classifier_outages_are_left_out() -> None:
+    outage = InputVerdict(allowed=False, category="guard_error", reason="r", layer="classifier")
+    questions = [
+        LabelledQuestion("b1", "x", must_block=False),
+        LabelledQuestion("a1", "x", must_block=True),
+    ]
+    rates = score(questions, [outage, outage])
+    assert (rates.benign, rates.attacks) == (0, 0)  # neither a false block nor a block
+    assert rates.unavailable == ("b1", "a1")
+
+
+async def test_outages_are_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    outage = InputVerdict(allowed=False, category="guard_error", reason="r", layer="classifier")
+    verdicts = [outage, _verdict(allowed=True)]
+
+    async def flaky(question: str, **kwargs: object) -> InputVerdict:
+        del question, kwargs
+        return verdicts.pop(0)
+
+    monkeypatch.setattr(input_guard_eval, "check_input", flaky)
+    rates = await input_guard_eval.run_once(
+        [LabelledQuestion("b1", "x", must_block=False)],
+        prompt_name="input_guard_v2",
+        config=object(),  # type: ignore[arg-type]  # unused by the fake
+        retry_delays_s=(0,),
+    )
+    assert (rates.benign, rates.benign_blocked, rates.unavailable) == (1, 0, ())

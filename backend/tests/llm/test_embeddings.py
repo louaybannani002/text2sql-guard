@@ -78,3 +78,19 @@ async def test_rate_limit_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     result = await embed_texts(["a"], config=llm_config())
     assert len(fake.calls) == 2
     assert result.usage.attempts == 2
+
+
+async def test_requests_the_configured_dimensions(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    async def fake_embedding(**kwargs: object) -> EmbeddingResponse:
+        seen.update(kwargs)
+        return EmbeddingResponse(
+            data=[{"index": 0, "embedding": [0.1] * 4, "object": "embedding"}],
+            usage=Usage(prompt_tokens=1, total_tokens=1),
+            model="m",
+        )
+
+    monkeypatch.setattr(litellm, "aembedding", fake_embedding)
+    await embed_texts(["x"], config=llm_config(embedding_dimensions=1536))
+    assert seen["dimensions"] == 1536

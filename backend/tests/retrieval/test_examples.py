@@ -54,8 +54,8 @@ def test_content_hash_tracks_question_and_sql() -> None:
 # ---------------------------------------------------------------- the reviewed seed file
 
 
-def test_seed_file_has_twenty_examples() -> None:
-    assert len(SEEDS) == 20
+def test_seed_file_has_thirty_examples() -> None:
+    assert len(SEEDS) == 30  # 20 originals + 10 glossary conventions
 
 
 @pytest.mark.parametrize("example", SEEDS, ids=lambda e: e.example_id)

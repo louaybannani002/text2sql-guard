@@ -168,8 +168,10 @@ def test_benign_questions_pass_layer_1(case: BenignCase) -> None:
 
 def test_classifier_dev_set_is_balanced_and_separate() -> None:
     labels = Counter(c.label for c in DEV)
-    assert 20 <= labels["benign"] <= 25
-    assert 20 <= labels["attack"] <= 25
+    # Grows as new failure modes are found; stays roughly balanced.
+    assert 20 <= labels["benign"] <= 40
+    assert 20 <= labels["attack"] <= 40
+    assert abs(labels["benign"] - labels["attack"]) <= 5
     assert len({c.id for c in DEV}) == len(DEV)
     cases = tomllib.loads(
         (BACKEND.parent / "eval/guard/input_cases.toml").read_text(encoding="utf-8")

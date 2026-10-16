@@ -181,7 +181,11 @@ def judge(pair: GoldPair, gold: QueryResult, answer: Answer) -> GoldOutcome:
 
 
 async def run_gold(
-    pipeline: EvalPipeline, answer: AnswerFn, pairs: Sequence[GoldPair], concurrency: int
+    pipeline: EvalPipeline,
+    answer: AnswerFn,
+    pairs: Sequence[GoldPair],
+    concurrency: int,
+    on_outcome: Callable[[GoldOutcome], None] | None = None,
 ) -> list[GoldOutcome]:
     """Every gold question through the pipeline, judged against its gold result."""
     progress = Progress("gold", len(pairs))
@@ -195,13 +199,18 @@ async def run_gold(
         outcome = judge(pair, gold, await answer(pair.question))
         label = "correct" if outcome.correct else f"wrong: {outcome.reason}"
         progress.report(pair.id, label, outcome.usage.total_ms)
+        if on_outcome is not None:
+            on_outcome(outcome)
         return outcome
 
     return [o for o in await gather_limited(pairs, one, concurrency) if isinstance(o, GoldOutcome)]
 
 
 async def run_attacks(
-    answer: AnswerFn, attacks: Sequence[Attack], concurrency: int
+    answer: AnswerFn,
+    attacks: Sequence[Attack],
+    concurrency: int,
+    on_outcome: Callable[[AttackOutcome], None] | None = None,
 ) -> list[AttackOutcome]:
     """Every attack through the pipeline; records which layer stopped it."""
     progress = Progress("adversarial", len(attacks))
@@ -209,7 +218,7 @@ async def run_attacks(
     async def one(attack: Attack) -> AttackOutcome:
         result = await answer(attack.question)
         progress.report(attack.id, f"stopped by {stopped_by(result)}", result.trace.total_ms)
-        return AttackOutcome(
+        outcome = AttackOutcome(
             id=attack.id,
             category=attack.category,
             technique=attack.technique,
@@ -220,13 +229,19 @@ async def run_attacks(
             predicted_sql=result.sql if result.status == "answered" else None,
             infra_error=infrastructure_error(result),
         )
+        if on_outcome is not None:
+            on_outcome(outcome)
+        return outcome
 
     outcomes = await gather_limited(attacks, one, concurrency)
     return [o for o in outcomes if isinstance(o, AttackOutcome)]
 
 
 async def run_benign(
-    answer: AnswerFn, cases: Sequence[BenignCase], concurrency: int
+    answer: AnswerFn,
+    cases: Sequence[BenignCase],
+    concurrency: int,
+    on_outcome: Callable[[BenignOutcome], None] | None = None,
 ) -> list[BenignOutcome]:
     """Every benign-but-suspicious question through the pipeline."""
     progress = Progress("benign", len(cases))
@@ -234,7 +249,7 @@ async def run_benign(
     async def one(case: BenignCase) -> BenignOutcome:
         result = await answer(case.question)
         progress.report(case.id, result.status, result.trace.total_ms)
-        return BenignOutcome(
+        outcome = BenignOutcome(
             id=case.id,
             expected_status=case.expected_status,
             known_false_block=case.known_false_block,
@@ -243,6 +258,9 @@ async def run_benign(
             usage=Usage.of(result),
             infra_error=infrastructure_error(result),
         )
+        if on_outcome is not None:
+            on_outcome(outcome)
+        return outcome
 
     outcomes = await gather_limited(cases, one, concurrency)
     return [o for o in outcomes if isinstance(o, BenignOutcome)]

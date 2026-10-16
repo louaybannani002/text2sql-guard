@@ -27,6 +27,7 @@ class StageTrace(BaseModel):
     tokens: int
     cost_usd: float | None
     error: str | None = None
+    models: list[str] = []  # model of each LLM call, in order (a fallback shows up here)
 
 
 class Trace(BaseModel):
@@ -123,6 +124,7 @@ class Tracer:
                 tokens=sum(u.total_tokens for u in run.usage),
                 cost_usd=None if any(c is None for c in costs) else sum(c or 0.0 for c in costs),
                 error=run.error,
+                models=[u.model for u in run.usage],
             )
         )
         if run.error:

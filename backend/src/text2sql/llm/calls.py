@@ -12,6 +12,8 @@ from text2sql.observability.logging import get_logger
 
 log = get_logger(__name__)
 
+_RATE_LIMITED = 429
+
 
 async def call_with_retries[R](
     call: Callable[[], Awaitable[R]],
@@ -19,11 +21,13 @@ async def call_with_retries[R](
     role: UsageRole,
     model: str,
     config: LLMConfig,
+    retry_rate_limits: bool = True,
 ) -> tuple[R, int]:
     """Run ``call`` with a hard timeout, retrying 429/5xx with exponential backoff.
 
     ``call`` must build a fresh awaitable on every invocation and must not retry by itself
-    (pass ``num_retries=0`` and ``max_retries=0`` to LiteLLM).
+    (pass ``num_retries=0`` and ``max_retries=0`` to LiteLLM). With ``retry_rate_limits``
+    False, a 429 fails at once (the caller has a fallback model to switch to).
 
     Returns:
         The result and the number of attempts it took.
@@ -43,7 +47,12 @@ async def call_with_retries[R](
             raise LLMTimeoutError(msg, role=role, model=model) from exc
         except Exception as exc:
             code = status_code(exc)
-            if not is_retryable(exc) or attempt == max_attempts:
+            rate_limited = code == _RATE_LIMITED
+            if (
+                not is_retryable(exc)
+                or attempt == max_attempts
+                or (rate_limited and not retry_rate_limits)
+            ):
                 log.warning(
                     "llm_call_failed",
                     role=role,

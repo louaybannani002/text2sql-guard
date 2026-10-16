@@ -16,7 +16,6 @@ from text2sql.cache.exact import ExactCache
 from text2sql.cache.query_cache import QueryCache
 from text2sql.cache.semantic import SemanticCache
 from text2sql.executor.errors import QueryInvalidError
-from text2sql.pipeline import cache as pipeline_cache
 from text2sql.pipeline import orchestrator
 from text2sql.pipeline.answer import Answer
 from text2sql.pipeline.events import StageEvent
@@ -232,7 +231,6 @@ async def test_similar_question_with_other_numbers_is_generated(
 async def test_scope_change_invalidates(
     env: Env,
     fake_llm: Callable[..., FakeCompletion],
-    monkeypatch: pytest.MonkeyPatch,
     change: str,
 ) -> None:
     fake_llm(_guard(), _draft(), _guard(), _draft())
@@ -242,7 +240,7 @@ async def test_scope_change_invalidates(
     if change == "schema":
         env.catalog.schema_version = "schema-b"  # make catalog after a migration
     elif change == "prompt":
-        monkeypatch.setattr(pipeline_cache, "PROMPT_NAME", "generate_v3")
+        env = env.with_deps(generate_prompt="generate_v1")
     else:
         llm = env.deps.llm
         env = env.with_deps(llm=dataclasses.replace(llm, models=llm.models | {"main": "x/y"}))

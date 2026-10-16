@@ -54,12 +54,14 @@ class Usage:
     tokens: int
     cost_usd: float | None
     cache: str | None  # "exact" / "semantic" / None
+    sql_models: tuple[str, ...] = ()  # model of each SQL generation call (fallbacks included)
 
     @classmethod
     def of(cls, answer: Answer) -> "Usage":
         """From the answer's trace."""
         trace = answer.trace
-        return cls(trace.total_ms, trace.total_tokens, trace.total_cost_usd, answer.cache)
+        models = tuple(m for s in trace.stages if s.stage == "generate" for m in s.models)
+        return cls(trace.total_ms, trace.total_tokens, trace.total_cost_usd, answer.cache, models)
 
 
 @dataclass(frozen=True)
