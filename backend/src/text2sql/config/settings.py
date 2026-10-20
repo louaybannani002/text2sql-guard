@@ -93,10 +93,16 @@ class Settings(BaseSettings):
     llm_timeout_s: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
 
-    # Observability
-    langfuse_public_key: SecretStr
-    langfuse_secret_key: SecretStr
-    langfuse_host: AnyHttpUrl
+    # Calls to these providers are reported as costing 0 (free-tier keys), e.g. ["gemini","groq"].
+    llm_free_tier_providers: list[str] = Field(default_factory=list)
+
+    # Observability. Langfuse is a no-op unless enabled AND all three values are set.
+    langfuse_enabled: bool = True
+    langfuse_public_key: SecretStr | None = None
+    langfuse_secret_key: SecretStr | None = None
+    langfuse_host: AnyHttpUrl | None = None
+    langfuse_capture_question: bool = True  # the question text as the trace input
+    metrics_enabled: bool = True  # Prometheus GET /metrics
 
     @model_validator(mode="before")
     @classmethod

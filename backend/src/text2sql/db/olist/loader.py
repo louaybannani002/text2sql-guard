@@ -76,7 +76,7 @@ async def load_all(conn: asyncpg.Connection, raw_dir: Path) -> dict[str, int]:
             await conn.copy_records_to_table(
                 spec.table, schema_name=SCHEMA, columns=spec.column_names, records=records
             )
-            log.info("table_loaded", table=f"{SCHEMA}.{spec.table}", rows=len(records))
+            log.info("table_loaded", table=f"{SCHEMA}.{spec.table}", row_count=len(records))
         for statement in adds:
             await conn.execute(statement)
     return await row_counts(conn)

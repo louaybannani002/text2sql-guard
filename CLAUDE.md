@@ -382,6 +382,36 @@ make down        # stop services (`make down-volumes` also wipes data)
 - Unit tests use fakeredis; `tests/integration/test_cache_e2e.py` uses real Redis **database
   15** and flushes it. Never use database 15 for anything else.
 
+## Observability (`observability/`)
+
+- Everything is derived from `Answer.trace` after the request (`Observer.record`, called by
+  `routes/query.py`), so the pipeline has no tracing calls of its own. `record` never raises.
+  Each `StageTrace` keeps `started_ms` and `calls` (one `llm.Usage` per LLM/embedding call,
+  with `provider` and `fallback`), which is what traces and metrics are built from.
+- **Langfuse** (`langfuse_spans.py` pure OTLP builder, `langfuse_client.py` sender): one trace
+  per request (OTel trace id = query id hex) with a root `query` span, one span per stage and
+  attempt (`generate (retry 1)`), one `generation` per call with the model that actually
+  answered, provider, fallback flag, tokens, cost and prompt version (Langfuse's
+  `langfuse.observation.*` / `langfuse.trace.*` attributes); the trace output has the final SQL
+  (answered only), row count and column names. Never sent: rows, prompts, raw model output,
+  `Answer.detail`; the user id is a pseudonym. Posted as OTLP/HTTP JSON to
+  `/api/public/otel/v1/traces` by background tasks (httpx), flushed on shutdown. Do not use the
+  legacy `/api/public/ingestion` or v1 read APIs: Langfuse Cloud sunsets them on 2026-11-16
+  (read traces back with `GET /api/public/v2/observations`). No-op unless `LANGFUSE_ENABLED`
+  and host + both keys are set; unit tests set it false, integration tests turn it off.
+- Cost: calls to `LLM_FREE_TIER_PROVIDERS` count as 0; an unknown price stays unknown (omitted).
+- **Metrics** (`metrics.py`, prometheus-client, own registry): `GET /metrics` (404 when
+  `METRICS_ENABLED=false`): `t2s_queries_total{status}`, `t2s_query_duration_seconds`,
+  `t2s_stages_total{stage,status}`, `t2s_stage_duration_seconds{stage}`,
+  `t2s_guard_blocks_total{layer}`, `t2s_generation_retries_total`,
+  `t2s_llm_fallbacks_total{role,provider,model}`, `t2s_cache_hits_total{level}`,
+  `t2s_llm_calls_total` / `t2s_llm_tokens_total{provider,model}`, `t2s_llm_cost_usd_total{provider}`,
+  `t2s_query_crashes_total`. Labels are bounded: never question text, SQL or user ids.
+- **Logs**: every line of a request has `request_id` (middleware) and `user_id` (bound by the
+  async `current_user` dependency; None before authentication). `redact_sensitive` replaces
+  values under keys like `question`, `sql`, `rows`, `prompt`, `password`, `*_api_key`,
+  `*_url`: name harmless fields `row_count`, `prompt_version`, not `rows` / `prompt`.
+
 ## Generated SQL rules (binding for the future components)
 
 - **Generated SQL must never use `SELECT *`** (nor `t.*`). Always name columns: personal-data

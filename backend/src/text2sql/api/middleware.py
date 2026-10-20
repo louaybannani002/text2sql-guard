@@ -74,7 +74,8 @@ class RequestIdMiddleware:
                 message["headers"] = headers
             await send(message)
 
-        with structlog.contextvars.bound_contextvars(request_id=request_id):
+        # user_id stays None until authentication binds it (see dependencies.current_user).
+        with structlog.contextvars.bound_contextvars(request_id=request_id, user_id=None):
             try:
                 await self.app(scope, receive, send_with_id)
             except Exception as exc:  # noqa: BLE001 - last line: never let a traceback out

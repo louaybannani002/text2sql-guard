@@ -18,6 +18,7 @@ from text2sql.api.errors import ErrorBody, request_id_of
 from text2sql.api.guardrail import GuardrailOut, guardrail_of
 from text2sql.api.sse import sse_event
 from text2sql.executor.serialize import JsonValue
+from text2sql.observability.langfuse_spans import RequestInfo
 from text2sql.observability.logging import get_logger
 from text2sql.pipeline.answer import Answer, CacheHit
 from text2sql.pipeline.events import StageEvent
@@ -157,6 +158,16 @@ async def query(
                 log.error(  # noqa: TRY400 - type only, see above
                     "query_log_failed", error=type(exc).__name__, query_id=str(query_id)
                 )
+            guardrail = guardrail_of(answer) if answer else None
+            services.observer.record(
+                answer,
+                RequestInfo(
+                    query_id=query_id,
+                    request_id=request_id,
+                    user_id=user.user_id,
+                    guard_layer=guardrail.layer if guardrail else None,
+                ),
+            )
             await queue.put(None)
 
     task = asyncio.create_task(run())

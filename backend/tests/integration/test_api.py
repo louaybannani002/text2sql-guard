@@ -47,6 +47,7 @@ def _api_settings(real_settings: Settings, shared_db: Database, **overrides: obj
         # A fresh user per test: its rate-limit keys in the real Redis start at zero.
         "demo_username": f"it-{uuid.uuid4().hex[:12]}",
         "rate_limit_per_minute": 3,
+        "langfuse_enabled": False,  # never send test traces to the real Langfuse project
     }
     return real_settings.model_copy(update=update | overrides)
 

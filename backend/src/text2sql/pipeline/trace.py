@@ -4,9 +4,10 @@ import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from text2sql.executor.serialize import JsonValue
 from text2sql.llm.types import Usage
@@ -27,7 +28,13 @@ class StageTrace(BaseModel):
     tokens: int
     cost_usd: float | None
     error: str | None = None
-    models: list[str] = []  # model of each LLM call, in order (a fallback shows up here)
+    started_ms: float = 0.0  # offset from the start of the run
+    calls: list[Usage] = []  # every LLM / embedding call, in order (fallbacks included)
+
+    @property
+    def models(self) -> list[str]:
+        """The model of each call, in order."""
+        return [call.model for call in self.calls]
 
 
 class Trace(BaseModel):
@@ -37,6 +44,7 @@ class Trace(BaseModel):
 
     stages: list[StageTrace]
     total_ms: float
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @computed_field  # type: ignore[prop-decorator]  # pydantic's documented pattern
     @property
@@ -81,6 +89,7 @@ class Tracer:
         self._describe = describe_error
         self._stages: list[StageTrace] = []
         self._started = time.perf_counter()
+        self._started_at = datetime.now(UTC)
 
     async def _emit(self, event: StageStarted | StageDone | StageError) -> None:
         if self._sink is not None:
@@ -124,7 +133,8 @@ class Tracer:
                 tokens=sum(u.total_tokens for u in run.usage),
                 cost_usd=None if any(c is None for c in costs) else sum(c or 0.0 for c in costs),
                 error=run.error,
-                models=[u.model for u in run.usage],
+                started_ms=round((started - self._started) * 1000, 1),
+                calls=list(run.usage),
             )
         )
         if run.error:
@@ -144,4 +154,4 @@ class Tracer:
     def trace(self) -> Trace:
         """Everything recorded so far."""
         total = round((time.perf_counter() - self._started) * 1000, 1)
-        return Trace(stages=list(self._stages), total_ms=total)
+        return Trace(stages=list(self._stages), total_ms=total, started_at=self._started_at)

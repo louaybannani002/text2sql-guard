@@ -31,4 +31,5 @@ async def test_every_route_is_documented(app: FastAPI) -> None:
         "/v1/query",
         "/v1/schema",
         "/v1/feedback",
+        "/metrics",
     } == set(app.openapi()["paths"])

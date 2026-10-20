@@ -31,6 +31,12 @@ class Usage(BaseModel):
         ge=0, description="From LiteLLM's price map; None when the model has no known price."
     )
     attempts: int = Field(ge=1, description="1 + number of retries that were needed.")
+    provider: str | None = Field(
+        default=None, description="LiteLLM provider of ``model`` (gemini, groq, openai...)."
+    )
+    fallback: bool = Field(
+        default=False, description="Answered by the role's fallback model (primary hit HTTP 429)."
+    )
 
 
 @dataclass(frozen=True, slots=True)

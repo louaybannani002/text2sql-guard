@@ -136,7 +136,7 @@ async def generate_sql(  # noqa: PLR0913 - keyword-only inputs of one call
     draft = result.output
     log.info(
         "sql_drafted",
-        prompt=prompt_name,
+        prompt_version=prompt_name,
         answerable=draft.answerable,
         confidence=draft.confidence,
         tables_used=draft.tables_used,

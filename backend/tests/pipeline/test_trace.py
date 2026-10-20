@@ -49,6 +49,18 @@ async def test_successful_stage(tracer: Tracer, events: list[StageEvent]) -> Non
     assert stage.output == {"answerable": True}
     assert stage.latency_ms >= 0
     assert stage.models == ["m"]
+    assert stage.calls == [_usage(150, 0.002)]  # per-call detail kept for tracing
+
+
+async def test_stages_carry_their_offset_from_the_start(tracer: Tracer) -> None:
+    async with tracer.stage("input_guard", 1, {}):
+        pass
+    async with tracer.stage("retrieve", 1, {}):
+        pass
+    trace = tracer.trace()
+    first, second = trace.stages
+    assert 0 <= first.started_ms <= second.started_ms <= trace.total_ms
+    assert trace.started_at.tzinfo is not None
 
 
 async def test_soft_failure_emits_error_event(tracer: Tracer, events: list[StageEvent]) -> None:

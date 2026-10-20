@@ -8,8 +8,10 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "asyncpg>=0.30",
     "fastapi>=0.115",
+    "httpx>=0.28",
     "litellm>=1.104.0",
     "openai>=2.54.0",
+    "prometheus-client>=0.21",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "pyjwt>=2.15.1",

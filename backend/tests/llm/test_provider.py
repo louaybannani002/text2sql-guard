@@ -37,6 +37,7 @@ async def test_returns_validated_object_and_usage(fake_llm: Callable[..., FakeCo
     assert (usage.role, usage.model) == ("fast", "openai/gpt-5.4-mini")
     assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (120, 30, 150)
     assert usage.attempts == 1
+    assert (usage.provider, usage.fallback) == ("openai", False)
     assert usage.latency_ms >= 0
     assert usage.cost_usd is not None
     assert usage.cost_usd > 0
@@ -241,6 +242,7 @@ async def test_rate_limit_switches_to_the_fallback_at_once(
 
     assert result.output.country == "BR"
     assert result.usage.model == "groq/openai/gpt-oss-20b"
+    assert (result.usage.provider, result.usage.fallback) == ("groq", True)
     assert result.usage.attempts == 2  # one rate-limited call, no retry of it, then the fallback
     assert [c["model"] for c in completion.calls] == [
         "openai/gpt-5.4-mini",

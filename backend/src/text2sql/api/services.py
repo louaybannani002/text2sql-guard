@@ -7,7 +7,7 @@ Routes only see these protocols, so tests can swap in fakes; production wiring i
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from redis.asyncio import Redis
@@ -22,6 +22,7 @@ from text2sql.guard.sql_policy import load_policy
 from text2sql.llm import LLMConfig
 from text2sql.llm.embeddings import embed_texts
 from text2sql.llm.warmup import warm_up
+from text2sql.observability.observer import Observer, build_observer
 from text2sql.pipeline.answer import Answer
 from text2sql.pipeline.events import EventSink
 from text2sql.pipeline.orchestrator import OrchestratorDeps, answer
@@ -70,6 +71,7 @@ class Services:
     token_limiter: RateLimiter
     ping_redis: Callable[[], Awaitable[object]]
     close: Callable[[], Awaitable[None]]
+    observer: Observer = field(default_factory=Observer.disabled)
 
     async def readiness(self) -> dict[str, str]:
         """``ok`` / ``unavailable`` per dependency (never error details)."""
@@ -112,7 +114,12 @@ async def build_services(settings: Settings) -> Services:
         cache=QueryCache.from_settings(redis, settings) if settings.cache_enabled else None,
     )
 
+    observer = build_observer(
+        settings, generate_prompt=deps.generate_prompt, guard_prompt=deps.guard_prompt
+    )
+
     async def close() -> None:
+        await observer.aclose()
         await executor.close()
         await catalog.close()
         await redis.aclose()
@@ -125,4 +132,5 @@ async def build_services(settings: Settings) -> Services:
         token_limiter=RateLimiter(redis, "token", settings.auth_rate_limit_per_minute),
         ping_redis=redis.ping,
         close=close,
+        observer=observer,
     )

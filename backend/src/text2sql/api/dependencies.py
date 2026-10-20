@@ -8,6 +8,7 @@ from text2sql.api.auth import InvalidTokenError, Principal, verify_token
 from text2sql.api.errors import ApiError
 from text2sql.api.ratelimit import RateDecision
 from text2sql.api.services import Services
+from text2sql.observability.logging import bind_user
 
 _BEARER = "bearer "
 _CHALLENGE = {"WWW-Authenticate": 'Bearer realm="text2sql-guard"'}
@@ -22,17 +23,23 @@ def get_services(request: Request) -> Services:
 ServicesDep = Annotated[Services, Depends(get_services)]
 
 
-def current_user(request: Request, services: ServicesDep) -> Principal:
-    """Require a valid ``Authorization: Bearer <access token>`` header."""
+async def current_user(request: Request, services: ServicesDep) -> Principal:
+    """Require a valid ``Authorization: Bearer <access token>`` header.
+
+    Async on purpose: it runs in the request's own context, so the ``user_id`` it binds shows
+    up on every later log line of the request (a sync dependency runs in a worker thread).
+    """
     header = request.headers.get("authorization", "")
     if not header.lower().startswith(_BEARER):
         raise ApiError(401, "unauthorized", "Missing bearer token.", headers=_CHALLENGE)
     try:
-        return verify_token(header[len(_BEARER) :].strip(), services.settings.jwt_secret)
+        principal = verify_token(header[len(_BEARER) :].strip(), services.settings.jwt_secret)
     except InvalidTokenError:
         raise ApiError(
             401, "unauthorized", "Invalid or expired token.", headers=_CHALLENGE
         ) from None
+    bind_user(principal.user_id)
+    return principal
 
 
 UserDep = Annotated[Principal, Depends(current_user)]

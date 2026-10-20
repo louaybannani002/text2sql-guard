@@ -3,6 +3,7 @@
 from text2sql.eval.outcomes import AttackOutcome, BenignOutcome, GoldOutcome, Usage
 from text2sql.executor.executor import QueryResult, ResultColumn
 from text2sql.executor.serialize import JsonValue
+from text2sql.llm.types import Usage as LLMUsage
 from text2sql.pipeline.answer import Answer, AnswerStatus
 from text2sql.pipeline.trace import StageTrace, Trace
 
@@ -26,7 +27,21 @@ def stage(  # noqa: PLR0913 - test builder, keyword arguments
         tokens=tokens,
         cost_usd=0.001 if tokens else 0.0,
         error=error,
-        models=list(models),
+        calls=[llm_call(model) for model in models],
+    )
+
+
+def llm_call(model: str, *, fallback: bool = False, tokens: int = 10) -> LLMUsage:
+    return LLMUsage(
+        role="main",
+        model=model,
+        prompt_tokens=tokens,
+        completion_tokens=0,
+        total_tokens=tokens,
+        latency_ms=1.0,
+        cost_usd=None,
+        attempts=1,
+        fallback=fallback,
     )
 
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ValidationError
 from text2sql.config.settings import get_settings
 from text2sql.llm._litellm import litellm
 from text2sql.llm.calls import call_with_retries
-from text2sql.llm.config import LLMConfig, ModelTarget
+from text2sql.llm.config import LLMConfig, ModelTarget, provider_of
 from text2sql.llm.errors import LLMOutputValidationError, LLMProviderError
 from text2sql.llm.types import LLMResult, Message, ModelRole, Usage
 from text2sql.observability.logging import get_logger
@@ -48,6 +48,7 @@ async def generate_structured[T: BaseModel](
     target = config.target(model_role)
     fallback = config.fallback_target(model_role)
     started = time.perf_counter()
+    used_fallback = False
     try:
         response, attempts = await _complete_with_retries(
             messages, response_model, model_role, target, config, retry_rate_limits=fallback is None
@@ -56,12 +57,14 @@ async def generate_structured[T: BaseModel](
         if fallback is None or exc.status_code != _RATE_LIMITED:
             raise
         log.warning("llm_fallback", role=model_role, model=target.model, fallback=fallback.model)
-        target = fallback
+        target, used_fallback = fallback, True
         response, attempts = await _complete_with_retries(
             messages, response_model, model_role, target, config
         )
         attempts += exc.attempts
-    usage = _usage(response, model_role, target.model, started, attempts)
+    usage = _usage(response, model_role, target.model, started, attempts).model_copy(
+        update={"fallback": used_fallback}
+    )
     log.info("llm_call", **usage.model_dump(), schema=response_model.__name__)
     return LLMResult(_validate(response, response_model, usage), usage)
 
@@ -110,6 +113,7 @@ def _usage(response: Any, role: ModelRole, model: str, started: float, attempts:
         latency_ms=round((time.perf_counter() - started) * 1000, 1),
         cost_usd=cost,
         attempts=attempts,
+        provider=provider_of(model),
     )
 
 

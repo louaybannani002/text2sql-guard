@@ -14,12 +14,14 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests.observability.support import FakeSink
 from text2sql.api.app import create_app
 from text2sql.api.ratelimit import RateLimiter
 from text2sql.api.services import Services
 from text2sql.api.store import ColumnSummary, TableSummary
 from text2sql.config.settings import Settings
 from text2sql.executor.executor import QueryResult, ResultColumn
+from text2sql.observability.observer import build_observer
 from text2sql.pipeline.answer import Answer
 from text2sql.pipeline.events import EventSink, StageDone, StageStarted
 from text2sql.pipeline.trace import StageTrace, Trace
@@ -162,12 +164,13 @@ class Fakes:
     redis: FakeRedis
     store: FakeStore
     answer: AnswerFn
+    sink: FakeSink
     closed: bool = False
 
 
 @pytest.fixture
 def fakes() -> Fakes:
-    return Fakes(redis=FakeRedis(), store=FakeStore(), answer=scripted_answer)
+    return Fakes(redis=FakeRedis(), store=FakeStore(), answer=scripted_answer, sink=FakeSink())
 
 
 @pytest.fixture
@@ -187,6 +190,12 @@ def app(settings: Settings, fakes: Fakes) -> FastAPI:
             ),
             ping_redis=fakes.redis.ping,
             close=close,
+            observer=build_observer(
+                app_settings,
+                generate_prompt="generate_v2",
+                guard_prompt="input_guard_v2",
+                sink=fakes.sink,
+            ),
         )
 
     return create_app(settings, services_factory=factory)

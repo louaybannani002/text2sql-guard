@@ -8,9 +8,26 @@ SECRET_VARS = [
     "REDIS_URL",
     "READER_DATABASE_URL",
     "APP_DATABASE_URL",
-    "LANGFUSE_PUBLIC_KEY",
-    "LANGFUSE_SECRET_KEY",
 ]
+
+
+@pytest.mark.parametrize("var", ["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST"])
+def test_langfuse_is_optional(
+    var: str, fake_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del fake_env
+    monkeypatch.delenv(var)
+    assert getattr(Settings(_env_file=None), var.lower()) is None  # tracing becomes a no-op
+
+
+def test_observability_defaults(fake_env: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    del fake_env
+    monkeypatch.delenv("LANGFUSE_ENABLED", raising=False)
+    monkeypatch.setenv("LLM_FREE_TIER_PROVIDERS", '["gemini", "groq"]')
+    settings = Settings(_env_file=None)
+    assert settings.langfuse_enabled
+    assert settings.metrics_enabled
+    assert settings.llm_free_tier_providers == ["gemini", "groq"]
 
 
 def test_loads_from_env(settings: Settings) -> None:

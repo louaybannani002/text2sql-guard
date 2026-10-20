@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from text2sql.api.errors import install_error_handlers
 from text2sql.api.middleware import BodySizeLimitMiddleware, RequestIdMiddleware
-from text2sql.api.routes import auth, feedback, health, query, schema
+from text2sql.api.routes import auth, feedback, health, metrics, query, schema
 from text2sql.api.services import ServicesFactory, build_services
 from text2sql.config.settings import Settings, get_settings
 from text2sql.observability.logging import configure_logging, get_logger
@@ -51,7 +51,8 @@ def create_app(
         redoc_url=None,
     )
     install_error_handlers(app)
-    for router in (health.router, auth.router, query.router, schema.router, feedback.router):
+    routers = (health, auth, query, schema, feedback, metrics)
+    for router in (module.router for module in routers):
         app.include_router(router)
 
     # Last added runs first: request id -> CORS -> body size limit -> app.

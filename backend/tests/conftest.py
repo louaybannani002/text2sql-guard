@@ -25,6 +25,7 @@ FAKE_ENV = {
     "LANGFUSE_PUBLIC_KEY": "pk-lf-test",
     "LANGFUSE_SECRET_KEY": "sk-lf-test",
     "LANGFUSE_HOST": "https://langfuse.example.com",
+    "LANGFUSE_ENABLED": "false",  # never send anything from tests; enable per test if needed
 }
 
 

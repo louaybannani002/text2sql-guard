@@ -8,7 +8,7 @@ from typing import Any
 from text2sql.config.settings import get_settings
 from text2sql.llm._litellm import litellm
 from text2sql.llm.calls import call_with_retries
-from text2sql.llm.config import LLMConfig
+from text2sql.llm.config import LLMConfig, provider_of
 from text2sql.llm.errors import LLMProviderError
 from text2sql.llm.types import Usage
 from text2sql.observability.logging import get_logger
@@ -89,4 +89,5 @@ def _usage(response: Any, model: str, started: float, attempts: int) -> Usage:  
         latency_ms=round((time.perf_counter() - started) * 1000, 1),
         cost_usd=cost,
         attempts=attempts,
+        provider=provider_of(model),
     )
