@@ -286,6 +286,9 @@ make down        # stop services (`make down-volumes` also wipes data)
   over. `--prompt` / `--guard-prompt` evaluate other prompt versions; compare prompts with
   `--no-fallback`, or a rate limit silently swaps in the fallback model mid-run. Provider outages are
   retried, then recorded as infrastructure errors and excluded from every rate.
+- `--subset` runs the gold questions of `eval/datasets/compare_subset.json` only (60, chosen by
+  rule: per difficulty the smallest SHA-256 of the id, 18/24/18). Regenerate it with
+  `text2sql.eval.subset.stratified_ids`, never pick questions by hand (a test enforces it).
 - `python -m text2sql.eval.compare_runs --run TITLE REPORT.json ...` recomputes the same
   metrics for several reports side by side (`--gold-only TITLE` for a run whose guardrail phase
   was hit by outages).

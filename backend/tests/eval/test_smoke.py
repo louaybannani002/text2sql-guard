@@ -18,7 +18,7 @@ def test_smoke_subset_is_20_questions_from_the_datasets() -> None:
 
 
 def test_select_rejects_unknown_ids() -> None:
-    with pytest.raises(ValueError, match="unknown ids"):
+    with pytest.raises(ValueError, match="unknown question ids"):
         select(load_gold(), ["nope"])
 
 

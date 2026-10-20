@@ -114,3 +114,9 @@ def test_splits_answers_by_the_model_that_wrote_the_sql(tmp_path: Path) -> None:
     table = compare([Column(path), Column(_report(tmp_path, "old.json"))], ["new", "old"])
     assert _row(table, "Gold answers using a fallback model") == ["25.0% (1/4)", "-"]
     assert _row(table, "Accuracy, primary model only") == ["50.0% (1/2)", "-"]
+
+
+def test_gold_can_be_restricted_to_a_subset(tmp_path: Path) -> None:
+    table = compare([Column(_report(tmp_path, "a.json"))], ["A"], gold_ids={"g0", "g1"})
+    assert _row(table, "Execution accuracy") == ["50.0% (1/2)"]
+    assert _row(table, "Attack block rate (all)") == ["50.0% (1/2)"]  # attacks untouched

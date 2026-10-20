@@ -10,9 +10,11 @@ import argparse
 import json
 import math
 import sys
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from text2sql.eval.subset import load_subset_ids
 
 INPUT_LAYERS = {"input_rules", "input_classifier"}
 DIFFICULTIES = ("easy", "medium", "hard")
@@ -80,10 +82,12 @@ def _fallback_rows(gold: list[Record], *, primary: str) -> dict[str, str]:
     }
 
 
-def _rows(report: Record, *, gold_only: bool) -> dict[str, str]:
+def _rows(report: Record, *, gold_only: bool, gold_ids: set[str] | None) -> dict[str, str]:
     info = _field(report, "info")
     info = info if isinstance(info, dict) else {}
     every = {key: _records(report, key) for key in ("gold", "attacks", "benign")}
+    if gold_ids is not None:
+        every["gold"] = [g for g in every["gold"] if g.get("id") in gold_ids]
     gold, attacks, benign = (
         [r for r in every[key] if not r.get("infra_error")] for key in ("gold", "attacks", "benign")
     )
@@ -135,9 +139,16 @@ def _load(path: Path) -> Record:
     return report
 
 
-def compare(columns: Sequence[Column], titles: Sequence[str]) -> str:
-    """Markdown table: one row per metric, one column per report."""
-    per_column = [_rows(_load(c.path), gold_only=c.gold_only) for c in columns]
+def compare(
+    columns: Sequence[Column], titles: Sequence[str], *, gold_ids: Collection[str] | None = None
+) -> str:
+    """Markdown table: one row per metric, one column per report.
+
+    With ``gold_ids``, every column is scored on those gold questions only (e.g. a full run
+    next to subset runs).
+    """
+    ids = set(gold_ids) if gold_ids is not None else None
+    per_column = [_rows(_load(c.path), gold_only=c.gold_only, gold_ids=ids) for c in columns]
     metrics = list(dict.fromkeys(k for rows in per_column for k in rows))
     lines = ["| Metric | " + " | ".join(titles) + " |", "|---" * (len(titles) + 1) + "|"]
     lines += [
@@ -154,11 +165,14 @@ def main(argv: list[str] | None = None) -> int:
         "--run", nargs=2, action="append", metavar=("TITLE", "REPORT_JSON"), required=True
     )
     parser.add_argument("--gold-only", action="append", default=[], metavar="TITLE")
+    parser.add_argument(
+        "--subset", action="store_true", help="score gold on compare_subset.json only"
+    )
     parser.add_argument("--out", type=Path, default=None, help="write the table to this file")
     args = parser.parse_args(argv)
     titles = [title for title, _ in args.run]
     columns = [Column(Path(path), gold_only=title in args.gold_only) for title, path in args.run]
-    table = compare(columns, titles)
+    table = compare(columns, titles, gold_ids=load_subset_ids() if args.subset else None)
     if args.out is None:
         sys.stdout.write(table)
     else:

@@ -14,6 +14,7 @@ from text2sql.eval.session import (
     default_run_name,
     questions,
 )
+from text2sql.eval.subset import load_subset_ids
 
 OPTIONS = RunOptions(
     datasets=("gold", "adversarial", "benign"),
@@ -78,3 +79,11 @@ def test_outages_are_left_out_of_the_rates() -> None:
     assert metrics.gold is not None
     assert metrics.gold.execution_accuracy.n == 1
     assert metrics.infrastructure_errors == ["g2"]
+
+
+def test_subset_limits_only_the_gold_questions() -> None:
+    q = questions(dataclasses.replace(OPTIONS, subset=True))
+    assert [g.id for g in q.gold] == load_subset_ids()
+    assert len(q.attacks) == len(load_adversarial())
+    assert q.benign
+    assert default_run_name("m", dataclasses.replace(OPTIONS, subset=True)).endswith("_subset")

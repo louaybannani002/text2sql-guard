@@ -35,7 +35,7 @@ def select[T: (GoldPair, Attack)](items: list[T], ids: list[str]) -> list[T]:
     by_id = {item.id: item for item in items}
     missing = [i for i in ids if i not in by_id]
     if missing:
-        msg = f"smoke.json lists unknown ids: {missing}"
+        msg = f"unknown question ids: {missing}"
         raise ValueError(msg)
     return [by_id[i] for i in ids]
 

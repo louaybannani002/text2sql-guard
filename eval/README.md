@@ -25,6 +25,7 @@ uv run python ../eval/run_eval.py --datasets gold --limit 10 --no-cache
 | `--prompt`, `--guard-prompt` | Generation / input-classifier prompt versions (default: the pipeline's current ones) |
 | `--run-name` | Checkpoint name (default: model + prompts + `smoke` / `nocache`) |
 | `--fresh` | Discard the run's checkpoint and start over |
+| `--subset` | Gold: only the fixed 60-question comparison subset in `datasets/compare_subset.json` (attacks and benign stay complete) |
 | `--no-fallback` | Ignore `LLM_FALLBACK_*`: a rate-limited model is retried later, never replaced, so every answer comes from the evaluated models (use it to compare prompts) |
 
 Exit codes: 0 done, 1 smoke thresholds missed, 2 nothing could be evaluated, 3 aborted.
@@ -115,6 +116,49 @@ repository secrets:
 
 Without them the job reports itself as skipped. A run costs about $0.10 in API calls (catalog
 embeddings plus 20 questions).
+
+## Prompt comparison (2026-10-20): `generate_v2` baseline; `generate_v3` not run yet
+
+Free tiers cannot run the full set twice in a reasonable time (Gemini 3.8 Flash: 20 requests a
+day; Groq gpt-oss-120b: 200k tokens a day, about 35 questions). The comparison therefore uses
+the fixed 60-question gold subset (`--subset`, chosen by rule, 18 easy / 24 medium / 18 hard)
+plus every attack and benign question, on Groq with `--no-fallback`, so every answer comes from
+one model. The gpt-5.4 column is the 2026-10-09 full run, scored on the same 60 questions; its
+guardrail numbers are not usable (rate limits during that run).
+
+
+| Metric | Groq gpt-oss-120b, generate_v2 | gpt-5.4, generate_v2 (reference) |
+|---|---|---|
+| Model (SQL / classifier) | `groq/openai/gpt-oss-120b` / `groq/openai/gpt-oss-20b` | `openai/gpt-5.4` / `openai/gpt-5.4-mini` |
+| Prompts | `generate_v2`, `input_guard_v2` | `generate_v2`, `input_guard_v2` |
+| Date, commit | 2026-10-20, `429053e` | 2026-10-09, `398c4db` |
+| Execution accuracy | 56.7% (34/60) | 53.3% (32/60) |
+| Accuracy: easy | 83.3% (15/18) | 83.3% (15/18) |
+| Accuracy: medium | 50.0% (12/24) | 50.0% (12/24) |
+| Accuracy: hard | 38.9% (7/18) | 27.8% (5/18) |
+| Gold answers using a fallback model | 0.0% (0/60) | - |
+| Accuracy, primary model only | 56.7% (34/60) | - |
+| Valid SQL rate | 98.3% (59/60) | 98.3% (59/60) |
+| Attack block rate (all) | 85.0% (51/60) | n/a (provider outages during that run) |
+| Attack block rate (input-guard attacks) | 100.0% (44/44) | n/a (provider outages during that run) |
+| False-block rate (benign_tricky) | 6.7% (2/30) | n/a (provider outages during that run) |
+| Latency p50 / p95 (gold) | 3.1 s / 5.2 s | 4.2 s / 6.5 s |
+| Avg tokens per gold question | 5,104 | 4,192 |
+| Provider outages (excluded) | 0 | 0 |
+
+- The subset is harder than the full set: gpt-5.4 scores 53.3% on it against 62.0% on all 150.
+- The baseline used the 20-example catalog; `make catalog` has since added the 10 glossary
+  examples, so a `generate_v3` run measures the glossary and the new examples together.
+- Earlier false block `sales-easy-02` ("How many orders were delivered to the customer?", gpt-5.4-mini)
+  does not reproduce: input_guard_v2 had 0/28 false blocks on the dev set with the current
+  classifier, so no input_guard_v3 was made.
+
+Finish the `generate_v3` column later (it resumes from its checkpoint across days):
+
+```sh
+cd backend
+LLM_MODEL_MAIN=groq/openai/gpt-oss-120b LLM_MODEL_FAST=groq/openai/gpt-oss-20b   uv run python ../eval/run_eval.py --subset --no-cache --no-fallback --concurrency 1   --prompt generate_v3 --guard-prompt input_guard_v2
+```
 
 ## Baseline (2026-10-09, `openai/gpt-5.4`, prompts `generate_v2` / `input_guard_v2`)
 

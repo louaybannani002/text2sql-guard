@@ -24,6 +24,7 @@ from text2sql.eval.pipeline_setup import ModelChoice, llm_for, open_pipeline
 from text2sql.eval.run_result import RunInfo, RunResult
 from text2sql.eval.runner import CircuitBreaker, pipeline_answer, run_attacks, run_benign, run_gold
 from text2sql.eval.smoke import load_smoke, select
+from text2sql.eval.subset import load_subset_ids
 
 PROVIDER_DOWN = (
     "aborted: the model provider failed for several questions in a row (rate limit, exhausted "
@@ -47,6 +48,9 @@ class RunOptions:
     run_name: str | None = None  # default: model + prompts (+ smoke / nocache)
     fresh: bool = False  # discard the run's checkpoint
     fallbacks: bool = True  # False: wait for a rate-limited model instead of replacing it
+    subset: bool = (
+        False  # gold: only the fixed comparison subset (eval/datasets/compare_subset.json)
+    )
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,7 @@ def default_run_name(model: str, options: RunOptions) -> str:
     """Stable across days, so a run limited by free-tier quotas can be resumed."""
     parts = [re.sub(r"[^A-Za-z0-9.]+", "-", model).strip("-"), options.generate_prompt]
     parts += [options.guard_prompt, *(["smoke"] if options.smoke else [])]
+    parts += ["subset"] if options.subset else []
     parts += [] if options.use_cache else ["nocache"]
     return "_".join(parts + ([] if options.fallbacks else ["nofallback"]))
 
@@ -86,6 +91,8 @@ def questions(options: RunOptions) -> Questions:
     if options.smoke:
         spec = load_smoke()
         gold, attacks, benign = select(gold, spec.gold_ids), select(attacks, spec.attack_ids), []
+    elif options.subset:
+        gold = select(gold, load_subset_ids())
     return Questions(
         gold=gold[: options.limit] if "gold" in options.datasets else [],
         attacks=attacks[: options.limit] if "adversarial" in options.datasets else [],

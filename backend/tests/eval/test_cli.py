@@ -24,6 +24,8 @@ def test_parse_args_defaults() -> None:
     assert args.out_dir == cli.DEFAULT_OUT
     assert cli.options_from(args).fallbacks
     assert not cli.options_from(cli.parse_args(["--no-fallback"])).fallbacks
+    assert not cli.options_from(args).subset
+    assert cli.options_from(cli.parse_args(["--subset"])).subset
 
 
 def test_skipped_run_explains_why(settings: Settings) -> None:

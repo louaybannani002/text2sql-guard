@@ -70,6 +70,7 @@ def options_from(args: argparse.Namespace) -> RunOptions:
         run_name=args.run_name,
         fresh=args.fresh,
         fallbacks=not args.no_fallback,
+        subset=args.subset,
     )
 
 
@@ -114,6 +115,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", choices=["main", "local", "both"], default="main")
     parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS))
     parser.add_argument("--smoke", action="store_true", help="20-question subset + thresholds")
+    parser.add_argument("--subset", action="store_true", help="fixed 60-question gold subset")
     parser.add_argument("--prompt", default=GENERATE_PROMPT, help="generation prompt version")
     parser.add_argument("--guard-prompt", default=GUARD_PROMPT, help="input classifier prompt")
     parser.add_argument("--concurrency", type=int, default=2, help="questions in flight")
