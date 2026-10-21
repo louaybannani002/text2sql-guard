@@ -9,6 +9,7 @@ SCOPE = CacheScope(
     prompt_version="generate_v2",
     model="openai/gpt-5.4",
     embedding_model="openai/text-embedding-3-small",
+    guard_prompt="input_guard_v2",
 )
 
 
@@ -43,6 +44,13 @@ def test_scope_changes_invalidate_both_levels(change: dict[str, str]) -> None:
     other = dataclasses.replace(SCOPE, **change)
     assert other.exact_key("q") != SCOPE.exact_key("q")
     assert other.semantic_namespace() != SCOPE.semantic_namespace()
+
+
+def test_guard_prompt_invalidates_exact_entries_only() -> None:
+    # An exact hit skips the classifier: a new classifier prompt must re-screen the question.
+    other = dataclasses.replace(SCOPE, guard_prompt="input_guard_v3")
+    assert other.exact_key("q") != SCOPE.exact_key("q")
+    assert other.semantic_namespace() == SCOPE.semantic_namespace()  # semantic re-screens anyway
 
 
 def test_embedding_model_only_matters_for_vectors() -> None:

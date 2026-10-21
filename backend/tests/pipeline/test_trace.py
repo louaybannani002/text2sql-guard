@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from text2sql.llm.types import Usage
@@ -60,7 +62,7 @@ async def test_stages_carry_their_offset_from_the_start(tracer: Tracer) -> None:
     trace = tracer.trace()
     first, second = trace.stages
     assert 0 <= first.started_ms <= second.started_ms <= trace.total_ms
-    assert trace.started_at.tzinfo is not None
+    assert abs(trace.started_at - time.time()) < 60  # Unix seconds
 
 
 async def test_soft_failure_emits_error_event(tracer: Tracer, events: list[StageEvent]) -> None:

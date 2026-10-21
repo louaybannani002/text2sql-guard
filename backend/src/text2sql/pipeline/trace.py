@@ -4,7 +4,6 @@ import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -44,7 +43,7 @@ class Trace(BaseModel):
 
     stages: list[StageTrace]
     total_ms: float
-    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    started_at: float = Field(default_factory=time.time)  # Unix seconds (JSON-safe)
 
     @computed_field  # type: ignore[prop-decorator]  # pydantic's documented pattern
     @property
@@ -89,7 +88,7 @@ class Tracer:
         self._describe = describe_error
         self._stages: list[StageTrace] = []
         self._started = time.perf_counter()
-        self._started_at = datetime.now(UTC)
+        self._started_at = time.time()
 
     async def _emit(self, event: StageStarted | StageDone | StageError) -> None:
         if self._sink is not None:

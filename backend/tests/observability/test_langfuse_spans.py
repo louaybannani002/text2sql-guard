@@ -65,6 +65,7 @@ def test_generations_name_the_model_that_answered_and_the_fallback() -> None:
         "input": 100,
         "output": 20,
         "total": 120,
+        "input_cached_tokens": 0,
     }
     assert (values["gen_ai.usage.input_tokens"], values["gen_ai.usage.output_tokens"]) == (100, 20)
     assert names[fallback["parentSpanId"]] == "generate"

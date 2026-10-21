@@ -1,0 +1,15 @@
+# Load-test override: the API answers from recorded SQL (fake LLM mode), so a load test never
+# spends free-tier quota. Everything else is real: guard rules, cache, retrieval, validator,
+# executor and Postgres. Use only with load/query.js, then restart the stack normally:
+#
+#   docker compose -f docker-compose.yml -f load/compose.fake.yml --env-file backend/.env up -d --wait api
+#   (load test, see load/README.md)
+#   docker compose -f docker-compose.yml --env-file backend/.env up -d --wait api
+services:
+  api:
+    environment:
+      LLM_FAKE_MODE: "true"
+      LLM_FAKE_DELAY_SCALE: "1.0"
+      # One demo user drives every virtual user: lift the per-user limit for the test only.
+      RATE_LIMIT_PER_MINUTE: "1000000"
+      LANGFUSE_ENABLED: "false"

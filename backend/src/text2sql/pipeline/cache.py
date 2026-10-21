@@ -38,6 +38,12 @@ class CacheSession:
     exact_hit: CachedAnswer | None = None
     semantic_hit: SemanticHit | None = None
     embedded: Embedded | None = None
+    exact_status: str = "miss"  # hit / miss / error
+
+    @property
+    def usable(self) -> bool:
+        """False after a Redis error: the request goes on without the cache."""
+        return self.exact_status != "error"
 
     @property
     def exact_key(self) -> str:
@@ -78,33 +84,43 @@ _FREE = {
 }
 
 
-async def open_cache(run: RunState, deps: OrchestratorDeps) -> CacheSession | None:
-    """The ``cache`` stage: exact lookup, then (on a miss) embedding + semantic lookup."""
+async def lookup_exact(deps: OrchestratorDeps, question: str) -> CacheSession | None:
+    """Catalog version + exact lookup: a few milliseconds, no LLM. None: cache off or no catalog.
+
+    Runs before the LLM classifier so that an exact hit can skip it (see the orchestrator).
+    A Redis error leaves ``exact_status == "error"``; the ``cache`` stage reports it.
+    """
     if deps.cache is None:
         return None
+    async with deps.db.acquire() as conn:
+        schema_version = await conn.fetchval("SELECT schema_version FROM app.catalog_state")
+    if schema_version is None:
+        return None  # no catalog yet: retrieval reports it
+    scope = CacheScope(
+        schema_version=schema_version,
+        prompt_version=deps.generate_prompt,
+        model=deps.llm.models["main"],
+        embedding_model=deps.llm.embedding_model,
+        guard_prompt=deps.guard_prompt,
+    )
+    session = CacheSession(deps.cache, scope, question)
+    try:
+        session.exact_hit = await deps.cache.exact.get(session.exact_key)
+    except CACHE_ERRORS as exc:
+        log.warning("cache_unavailable", level="exact", error=type(exc).__name__)
+        session.exact_status = "error"
+        return session
+    session.exact_status = "hit" if session.exact_hit else "miss"
+    return session
+
+
+async def cache_stage(run: RunState, deps: OrchestratorDeps, session: CacheSession) -> None:
+    """The traced ``cache`` stage: the exact result, then on a miss the semantic lookup."""
     async with run.tracer.stage("cache", 1, {"question_chars": len(run.question)}) as stage:
-        stage.output = {"exact": "skipped", "semantic": "skipped"}
-        async with deps.db.acquire() as conn:
-            schema_version = await conn.fetchval("SELECT schema_version FROM app.catalog_state")
-        if schema_version is None:
-            return None  # no catalog yet: retrieval reports it
-        scope = CacheScope(
-            schema_version=schema_version,
-            prompt_version=deps.generate_prompt,
-            model=deps.llm.models["main"],
-            embedding_model=deps.llm.embedding_model,
-        )
-        session = CacheSession(deps.cache, scope, run.question)
-        try:
-            session.exact_hit = await deps.cache.exact.get(session.exact_key)
-        except CACHE_ERRORS as exc:
-            _record_error(stage, "exact", exc)
-            return None
-        stage.output["exact"] = "hit" if session.exact_hit else "miss"
-        if session.exact_hit is None:
+        stage.output = {"exact": session.exact_status, "semantic": "skipped"}
+        if session.exact_status == "miss":
             await _semantic_lookup(stage, deps, session)
     log.info("cache_lookup", exact=stage.output["exact"], semantic=stage.output["semantic"])
-    return session
 
 
 async def _semantic_lookup(stage: StageRun, deps: OrchestratorDeps, session: CacheSession) -> None:
@@ -140,6 +156,7 @@ async def serve_from_cache(
             run.use_cached(exact, "exact")
             return run.finish("answered", exact.explanation, exact.result)
         await _forget(session.cache.exact.delete(session.exact_key))
+        session.exact_hit, session.exact_status = None, "miss"
         return None
     if (hit := session.semantic_hit) is not None:
         validated = await _revalidate(run, deps, hit.entry.sql)

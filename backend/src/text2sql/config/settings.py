@@ -95,6 +95,15 @@ class Settings(BaseSettings):
 
     # Calls to these providers are reported as costing 0 (free-tier keys), e.g. ["gemini","groq"].
     llm_free_tier_providers: list[str] = Field(default_factory=list)
+    llm_http_max_connections: int = Field(default=100, ge=1)  # shared aiohttp session for LLMs
+    # Load tests only: recorded SQL with realistic delays, no provider is called. Never on by
+    # default and refused when APP_ENV=production.
+    llm_fake_mode: bool = False
+    llm_fake_delay_scale: float = Field(default=1.0, ge=0)  # 0 = no delay, 1 = realistic
+
+    # Connection pools
+    catalog_pool_size: int = Field(default=10, ge=1, le=100)  # t2s_app: catalog, cache, logs
+    redis_max_connections: int = Field(default=50, ge=1)
 
     # Observability. Langfuse is a no-op unless enabled AND all three values are set.
     langfuse_enabled: bool = True
@@ -103,6 +112,13 @@ class Settings(BaseSettings):
     langfuse_host: AnyHttpUrl | None = None
     langfuse_capture_question: bool = True  # the question text as the trace input
     metrics_enabled: bool = True  # Prometheus GET /metrics
+
+    @model_validator(mode="after")
+    def _no_fake_llm_in_production(self) -> "Settings":
+        if self.llm_fake_mode and self.app_env == "production":
+            msg = "LLM_FAKE_MODE must never be enabled with APP_ENV=production"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="before")
     @classmethod

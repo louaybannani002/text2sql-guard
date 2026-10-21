@@ -1,0 +1,8 @@
+# Small real-LLM latency run (load/real_run.py): a main model with a usable free-tier quota,
+# and no Groq fallback so the run never spends the quota of a running evaluation.
+services:
+  api:
+    environment:
+      LLM_MODEL_MAIN: gemini/gemini-3.5-flash-lite
+      LLM_FALLBACK_MAIN: ""
+      LLM_FALLBACK_FAST: ""

@@ -1,0 +1,204 @@
+{
+    "metrics": {
+        "http_req_connecting": {
+            "p(99)": 0,
+            "max": 1.355005,
+            "avg": 0.0009199490267400708,
+            "med": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "latency_hot": {
+            "p(90)": 850.7338964,
+            "p(95)": 913.8145164,
+            "p(99)": 1059.7725468800002,
+            "max": 4329.700448,
+            "avg": 699.2880855308925,
+            "med": 685.4300875
+        },
+        "http_req_waiting": {
+            "p(99)": 109.47780934999997,
+            "max": 273.603211,
+            "avg": 28.49087894342311,
+            "med": 21.762518,
+            "p(90)": 62.903447500000006,
+            "p(95)": 74.50854994999999
+        },
+        "iterations": {
+            "count": 20343,
+            "rate": 56.467386767775594
+        },
+        "http_req_duration": {
+            "p(95)": 913.1893513499999,
+            "p(99)": 1495.1430890499971,
+            "max": 5367.779808,
+            "avg": 625.7103437400707,
+            "med": 660.5180885,
+            "p(90)": 842.6340554
+        },
+        "answered_or_blocked": {
+            "fails": 0,
+            "passes": 20343,
+            "thresholds": {
+                "rate>0.99": false
+            },
+            "value": 1
+        },
+        "latency_attack": {
+            "avg": 49.42461868208485,
+            "med": 34.1084905,
+            "p(90)": 109.49632889999997,
+            "p(95)": 144.75055534999993,
+            "p(99)": 234.20343741999991,
+            "max": 615.014941
+        },
+        "iteration_duration": {
+            "avg": 626.1312208723408,
+            "med": 660.876779,
+            "p(90)": 843.1124243999999,
+            "p(95)": 913.4649672999999,
+            "p(99)": 1495.5105726799807,
+            "max": 5368.337256
+        },
+        "latency_cache_hit": {
+            "max": 1767.906771,
+            "avg": 696.4805786953062,
+            "med": 688.895699,
+            "p(90)": 849.3015344,
+            "p(95)": 908.4114295999999,
+            "p(99)": 1045.9398535599998
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 20344,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "http_reqs": {
+            "count": 20344,
+            "rate": 56.47016253274476
+        },
+        "checks": {
+            "passes": 40687,
+            "fails": 0,
+            "value": 1
+        },
+        "vus": {
+            "value": 2,
+            "min": 1,
+            "max": 50
+        },
+        "latency_recorded": {
+            "p(90)": 864.0319618000001,
+            "p(95)": 940.2689937,
+            "p(99)": 3265.630052819995,
+            "max": 5367.779808,
+            "avg": 740.8548963495874,
+            "med": 693.290492
+        },
+        "http_req_blocked": {
+            "avg": 0.006305851553283527,
+            "med": 0.004096,
+            "p(90)": 0.006467,
+            "p(95)": 0.007606849999999998,
+            "p(99)": 0.020022699999999997,
+            "max": 2.221219
+        },
+        "http_req_tls_handshaking": {
+            "p(99)": 0,
+            "max": 0,
+            "avg": 0,
+            "med": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "data_sent": {
+            "count": 9954112,
+            "rate": 27630.2753887704
+        },
+        "http_req_sending": {
+            "avg": 0.018535961561148215,
+            "med": 0.0158715,
+            "p(90)": 0.026330400000000004,
+            "p(95)": 0.03216749999999999,
+            "p(99)": 0.04823289999999998,
+            "max": 2.001041
+        },
+        "http_req_receiving": {
+            "p(95)": 870.4616996499999,
+            "p(99)": 1473.7982970899945,
+            "max": 5362.937201,
+            "avg": 597.200928835087,
+            "med": 632.7706244999999,
+            "p(90)": 806.6760542000001
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(90)": 842.6340554,
+            "p(95)": 913.1893513499999,
+            "p(99)": 1495.1430890499971,
+            "max": 5367.779808,
+            "avg": 625.7103437400707,
+            "med": 660.5180885
+        },
+        "data_received": {
+            "count": 43333136,
+            "rate": 120282.6009129735
+        },
+        "vus_max": {
+            "value": 50,
+            "min": 50,
+            "max": 50
+        },
+        "latency_unknown": {
+            "p(95)": 900.2544917999998,
+            "p(99)": 1067.9843701900015,
+            "max": 3727.660912,
+            "avg": 695.2797954345112,
+            "med": 680.372628,
+            "p(90)": 839.8218931
+        }
+    },
+    "setup_data": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZW1vIiwiaXNzIjoidGV4dDJzcWwtZ3VhcmQiLCJhdWQiOiJ0ZXh0MnNxbC1ndWFyZC1hcGkiLCJpYXQiOjE3OTI1Nzk4OTIsImV4cCI6MTc5MjU4MDc5MiwianRpIjoiYjJiYWJjYzk0YTFjNDZlNWJhNTg2MzNhZjQ5YzhhMmUifQ.Q9Zt-ugHUeYVkkviHAM5LEeQM-vOg1FHaLsmkZmVu-E"
+    },
+    "root_group": {
+        "groups": {
+            "setup": {
+                "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+                "groups": {},
+                "checks": {
+                        "logged in": {
+                            "name": "logged in",
+                            "path": "::setup::logged in",
+                            "id": "11a87407c20ff775ef8669efc0329223",
+                            "passes": 1,
+                            "fails": 0
+                        }
+                    },
+                "name": "setup",
+                "path": "::setup"
+            }
+        },
+        "checks": {
+            "status 200": {
+                "path": "::status 200",
+                "id": "fad9fa412b86fcb03bee97c80dcd61f1",
+                "passes": 20343,
+                "fails": 0,
+                "name": "status 200"
+            },
+            "attacks are blocked": {
+                "fails": 0,
+                "name": "attacks are blocked",
+                "path": "::attacks are blocked",
+                "id": "8885ccb35a2e659e80b1aceb4665a4fa",
+                "passes": 20343
+            }
+        },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}

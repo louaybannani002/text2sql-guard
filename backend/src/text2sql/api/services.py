@@ -5,6 +5,7 @@ Routes only see these protocols, so tests can swap in fakes; production wiring i
 """
 
 import asyncio
+import dataclasses
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -21,11 +22,15 @@ from text2sql.executor.executor import QueryExecutor
 from text2sql.guard.sql_policy import load_policy
 from text2sql.llm import LLMConfig
 from text2sql.llm.embeddings import embed_texts
+from text2sql.llm.http import open_http_session
 from text2sql.llm.warmup import warm_up
+from text2sql.observability.logging import get_logger
 from text2sql.observability.observer import Observer, build_observer
 from text2sql.pipeline.answer import Answer
 from text2sql.pipeline.events import EventSink
 from text2sql.pipeline.orchestrator import OrchestratorDeps, answer
+
+log = get_logger(__name__)
 
 _PING_TIMEOUT_S = 2.0
 
@@ -97,11 +102,20 @@ async def build_services(settings: Settings) -> Services:
     if missing := llm.missing_keys():
         msg = f"no API key for: {', '.join(missing)}"
         raise RuntimeError(msg)
-    # Pay for LiteLLM's lazy SDK import now: inside a request it would freeze the event loop.
-    await warm_up(llm.models["main"])
-    catalog = await create_pool(settings.app_database_url, max_size=5)
+    if llm.fake:
+        log.warning("llm_fake_mode", delay_scale=llm.fake_delay_scale)  # load tests only
+    else:
+        # Pay for LiteLLM's lazy SDK import now: in a request it would freeze the event loop.
+        await warm_up(llm.models["main"])
+    http = open_http_session(settings.llm_http_max_connections)
+    llm = dataclasses.replace(llm, http_session=http)
+    catalog = await create_pool(settings.app_database_url, max_size=settings.catalog_pool_size)
     executor = await QueryExecutor.create(settings)
-    redis: Redis = Redis.from_url(settings.redis_url.get_secret_value(), socket_timeout=2.0)
+    redis: Redis = Redis.from_url(
+        settings.redis_url.get_secret_value(),
+        socket_timeout=2.0,
+        max_connections=settings.redis_max_connections,
+    )
     async with catalog.acquire() as conn:
         policy = await load_policy(conn)
     deps = OrchestratorDeps(
@@ -123,6 +137,7 @@ async def build_services(settings: Settings) -> Services:
         await executor.close()
         await catalog.close()
         await redis.aclose()
+        await http.close()
 
     return Services(
         settings=settings,

@@ -159,3 +159,14 @@ async def test_repair_sends_failed_sql_and_error(fake_llm: Callable[..., FakeCom
     assert "Failed: validator (columns): Unknown column shop.orders.status." in user
     # The question stays last, after the attempts.
     assert user.index("<previous_attempts>") < user.index("<question>")
+
+
+def test_static_prompt_parts_come_first_for_provider_prompt_caching() -> None:
+    # Providers cache the longest identical prefix: the fixed system prompt must lead and the
+    # per-question parts (schema, examples, attempts, question) must follow, question last.
+    messages = build_messages("How many orders?", "CREATE TABLE shop.orders ();", [])
+    assert [m["role"] for m in messages] == ["system", "user"]
+    assert "How many orders?" not in messages[0]["content"]
+    user = messages[1]["content"]
+    assert user.index("<schema>") < user.index("<examples>") < user.index("<question>")
+    assert user.rstrip().endswith("</question>")

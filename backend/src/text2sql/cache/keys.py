@@ -48,6 +48,9 @@ class CacheScope:
     prompt_version: str
     model: str
     embedding_model: str
+    # An exact hit skips the LLM input classifier (the stored answer already passed it), so a
+    # new classifier prompt must not reuse entries that the old prompt allowed.
+    guard_prompt: str
 
     def exact_key(self, question: str) -> str:
         """Key of the exact entry for ``question`` (validated SQL and its result)."""
@@ -57,6 +60,7 @@ class CacheScope:
             self.schema_version,
             self.prompt_version,
             self.model,
+            self.guard_prompt,
         ]
         return f"{PREFIX}:exact:{_digest(parts)}"
 

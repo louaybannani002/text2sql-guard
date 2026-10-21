@@ -12,6 +12,7 @@ from text2sql.llm._litellm import litellm
 from text2sql.llm.calls import call_with_retries
 from text2sql.llm.config import LLMConfig, ModelTarget, provider_of
 from text2sql.llm.errors import LLMOutputValidationError, LLMProviderError
+from text2sql.llm.fake import fake_structured
 from text2sql.llm.types import LLMResult, Message, ModelRole, Usage
 from text2sql.observability.logging import get_logger
 
@@ -45,6 +46,8 @@ async def generate_structured[T: BaseModel](
         LLMOutputValidationError: The answer does not validate against ``response_model``.
     """
     config = config or LLMConfig.from_settings(get_settings())
+    if config.fake:
+        return await fake_structured(messages, response_model, model_role, config)
     target = config.target(model_role)
     fallback = config.fallback_target(model_role)
     started = time.perf_counter()
@@ -88,6 +91,7 @@ async def _complete_with_retries(  # noqa: PLR0913 - explicit inputs of one call
             api_base=target.api_base,
             num_retries=0,  # retries are ours: exact count, our backoff, our logs
             max_retries=0,  # ...and the OpenAI SDK must not retry underneath us
+            shared_session=config.http_session,  # reuse connections across calls
         ),
         role=role,
         model=target.model,
@@ -100,6 +104,8 @@ def _usage(response: Any, role: ModelRole, model: str, started: float, attempts:
     tokens = getattr(response, "usage", None)
     prompt = int(getattr(tokens, "prompt_tokens", 0) or 0)
     completion = int(getattr(tokens, "completion_tokens", 0) or 0)
+    details = getattr(tokens, "prompt_tokens_details", None)
+    cached = int(getattr(details, "cached_tokens", 0) or 0)
     try:
         cost: float | None = float(litellm.completion_cost(completion_response=response))
     except Exception:  # noqa: BLE001 - unpriced model (e.g. local): cost is unknown, not zero
@@ -114,6 +120,7 @@ def _usage(response: Any, role: ModelRole, model: str, started: float, attempts:
         cost_usd=cost,
         attempts=attempts,
         provider=provider_of(model),
+        cached_tokens=cached,
     )
 
 

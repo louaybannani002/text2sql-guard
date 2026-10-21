@@ -72,6 +72,25 @@ def _blocked(verdict: InputVerdict, length: int) -> InputVerdict:
     return verdict
 
 
+def check_layer1(question: str) -> InputVerdict | None:
+    """Layer 1 only (deterministic, free): the blocking verdict, or None if the rules pass."""
+    hit = check_rules(question)
+    if hit is None:
+        return None
+    verdict = InputVerdict(
+        allowed=False, category=hit.category, reason=hit.reason, layer="rules", rule=hit.rule
+    )
+    return _blocked(verdict, len(question))
+
+
+RULES_ONLY = InputVerdict(
+    allowed=True,
+    category="data_question",
+    reason="Passed the input rules; this exact question was already classified.",
+    layer="rules",
+)
+
+
 async def check_input(
     question: str, *, config: LLMConfig | None = None, prompt_name: str = PROMPT_NAME
 ) -> InputVerdict:
@@ -82,13 +101,16 @@ async def check_input(
         config: LLM configuration override (tests); defaults to the application settings.
         prompt_name: Classifier prompt version; only evaluations compare other versions.
     """
-    hit = check_rules(question)
-    if hit is not None:
-        verdict = InputVerdict(
-            allowed=False, category=hit.category, reason=hit.reason, layer="rules", rule=hit.rule
-        )
-        return _blocked(verdict, len(question))
+    blocked = check_layer1(question)
+    if blocked is not None:
+        return blocked
+    return await classify(question, config=config, prompt_name=prompt_name)
 
+
+async def classify(
+    question: str, *, config: LLMConfig | None = None, prompt_name: str = PROMPT_NAME
+) -> InputVerdict:
+    """Layer 2 only: the ``fast`` model's verdict. Fails closed (``guard_error``)."""
     try:
         result = await generate_structured(
             _messages(question, prompt_name), InputClassification, "fast", config=config

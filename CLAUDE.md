@@ -28,6 +28,7 @@ covers only the action shown. Never delete anything without a "yes" either.
 | `frontend/` | Next.js UI (App Router, TS strict, Tailwind, shadcn/ui), pnpm |
 | `infra/`    | Terraform (not started yet)                       |
 | `eval/`     | Evaluation datasets and harness                   |
+| `load/`     | k6 load test (fake LLM mode), real-LLM latency run |
 | `docs/`     | Architecture notes and ADRs                       |
 
 Backend packages under `backend/src/text2sql/`:
@@ -354,9 +355,14 @@ make down        # stop services (`make down-volumes` also wipes data)
 
 ## Orchestrator (`pipeline/orchestrator.py`)
 
-- `answer(question, deps, on_event=None) -> Answer`: input guard -> retrieve -> generate ->
-  validate -> execute. Statuses: answered, cannot_answer, blocked, rejected, failed. Expected
-  failures never raise; LLM/catalog/database outages become `failed` with a safe message.
+- `answer(question, deps, on_event=None) -> Answer`: layer-1 input rules -> exact cache
+  lookup (a hit is re-validated and served **without the LLM classifier**) -> otherwise the
+  classifier runs **concurrently** with the semantic lookup and retrieval (read-only catalog
+  work) -> generate -> validate -> execute. Generation never starts before the classifier
+  allows the question; a block or a client disconnect cancels the concurrent tasks. Stage
+  order in a trace therefore varies (`input_guard`, `cache`, `retrieve` overlap). Statuses:
+  answered, cannot_answer, blocked, rejected, failed. Expected failures never raise;
+  LLM/catalog/database outages become `failed` with a safe message.
 - Repair loop (`pipeline/attempts.py`): fixable failures (validator `Rejection.security=False`,
   `QueryInvalidError`, `QueryDataError`) go back to the generator (prompt `generate_v2`,
   `<previous_attempts>`) with the model's own SQL and the error, at most 2 retries.
@@ -368,8 +374,10 @@ make down        # stop services (`make down-volumes` also wipes data)
 
 ## Cache (`cache/`, wired in by `pipeline/cache.py`)
 
-- Two levels in Redis, looked up in a traced `cache` stage **after the input guard** (a cached
-  answer never skips it):
+- Two levels in Redis. The layer-1 input rules always run first. An exact hit then skips only
+  the LLM classifier: the stored answer already passed it, and the key includes the
+  classifier prompt version (`CacheScope.guard_prompt`). A semantic hit is never served
+  before the classifier allows the question. Blocked questions are never stored:
   1. **Exact** (`cache/exact.py`): key = hash(normalised question, `schema_version`, prompt
      version, main model). Value = validated SQL, explanation, assumptions and the rows, TTL
      `CACHE_TTL_S`. A hit returns the stored rows without executing.
@@ -393,6 +401,22 @@ make down        # stop services (`make down-volumes` also wipes data)
   similarity. On a miss, the lookup's embedding is reused by retrieval (not paid twice).
 - Unit tests use fakeredis; `tests/integration/test_cache_e2e.py` uses real Redis **database
   15** and flushes it. Never use database 15 for anything else.
+
+## Performance and load tests (`docs/performance.md`, `load/`)
+
+- **Fake LLM mode** (`LLM_FAKE_MODE`, `llm/fake.py`): recorded SQL (`llm/fake_recordings.json`,
+  from the gold set and examples; rebuild with `python -m text2sql.eval.fake_recordings`) and
+  realistic delays (`LLM_FAKE_DELAY_SCALE`). Never on by default, refused with
+  `APP_ENV=production`; model names get a `fake/` prefix so cache keys never mix fake and real
+  answers. Load tests (`load/query.js`, k6, `load/compose.fake.yml`) run only in this mode:
+  never spend free-tier quota on a load test. Real-LLM latency runs (`load/real_run.py`) stay
+  small, concurrency 1, paced.
+- One aiohttp session for all completions (`llm/http.py`, `LLMConfig.http_session`); pool
+  sizes are settings (`CATALOG_POOL_SIZE`, `REDIS_MAX_CONNECTIONS`, `EXECUTOR_POOL_SIZE`).
+- Keep the static prompt parts first (system prompt, then schema/examples, question last) so
+  provider prefix caching applies; `Usage.cached_tokens` shows whether it does.
+- One uvicorn process saturates at ~90 req/s on the laptop; scale with replicas, not workers
+  (per-process Prometheus registries).
 
 ## Observability (`observability/`)
 

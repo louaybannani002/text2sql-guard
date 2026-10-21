@@ -10,6 +10,7 @@ from text2sql.llm._litellm import litellm
 from text2sql.llm.calls import call_with_retries
 from text2sql.llm.config import LLMConfig, provider_of
 from text2sql.llm.errors import LLMProviderError
+from text2sql.llm.fake import fake_embeddings
 from text2sql.llm.types import Usage
 from text2sql.observability.logging import get_logger
 
@@ -32,6 +33,9 @@ async def embed_texts(texts: Sequence[str], *, config: LLMConfig | None = None) 
         LLMProviderError: Provider failure, or a response that does not match the input.
     """
     config = config or LLMConfig.from_settings(get_settings())
+    if config.fake:
+        fake = await fake_embeddings(texts, config)
+        return EmbeddingResult(fake.vectors, fake.usage)
     target = config.target("embedding")
     if not texts:
         nothing = Usage(

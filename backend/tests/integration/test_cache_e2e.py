@@ -3,6 +3,7 @@
 Only the LLM is mocked. Redis database 15 is used, so the dev cache (database 0) is untouched.
 """
 
+import dataclasses
 from collections.abc import AsyncIterator, Callable
 from urllib.parse import urlsplit, urlunsplit
 
@@ -68,20 +69,23 @@ async def test_exact_then_semantic_hits_on_real_services(
     assert (first.status, first.cache) == ("answered", None)
     assert first.result is not None
 
-    completion = fake_llm(_guard(), _guard())  # no generation for either question
+    # The exact hit needs no LLM at all (rules + cache); the paraphrase needs the classifier only.
+    completion = fake_llm(_guard())
     exact = await answer(QUESTION.upper(), deps)
     semantic = await answer(PARAPHRASE, deps)
     assert completion.outcomes == []
 
     assert (exact.cache, exact.result) == ("exact", first.result)
+    assert exact.trace.stages[0].output["classifier"] == "skipped_exact_cache"
     assert semantic.cache == "semantic"
     assert semantic.result is not None
     assert semantic.result.rows == first.result.rows  # executed again on Postgres
-    assert [s.stage for s in semantic.trace.stages] == [
-        "input_guard",
+    # input_guard and cache run concurrently, so their order in the trace may vary.
+    assert sorted(s.stage for s in semantic.trace.stages) == [
         "cache",
-        "validate",
         "execute",
+        "input_guard",
+        "validate",
     ]
     exact_ttl = await redis.ttl((await redis.keys("t2s:cache:exact:*"))[0])
     assert 0 < exact_ttl <= deps.cache.exact.ttl_s  # type: ignore[union-attr]  # set above
@@ -96,7 +100,9 @@ async def test_keys_carry_the_real_catalog_version(
     fake_llm(_guard(), _draft())
     await answer(QUESTION, deps)
     version = await app.fetchval("SELECT schema_version FROM app.catalog_state")
-    scope = CacheScope(version, PROMPT_NAME, deps.llm.models["main"], deps.llm.embedding_model)
+    scope = CacheScope(
+        version, PROMPT_NAME, deps.llm.models["main"], deps.llm.embedding_model, deps.guard_prompt
+    )
     assert await redis.exists(scope.exact_key(QUESTION)) == 1
-    rebuilt = CacheScope("rebuilt", PROMPT_NAME, scope.model, scope.embedding_model)
+    rebuilt = dataclasses.replace(scope, schema_version="rebuilt")
     assert await redis.exists(rebuilt.exact_key(QUESTION)) == 0

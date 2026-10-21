@@ -61,6 +61,12 @@ class PipelineMetrics:
         self.llm_tokens = Counter(
             "t2s_llm_tokens", "Tokens used.", ["provider", "model"], registry=registry
         )
+        self.llm_cached_tokens = Counter(
+            "t2s_llm_cached_tokens",
+            "Prompt tokens served from the provider's prompt cache.",
+            ["provider", "model"],
+            registry=registry,
+        )
         self.llm_cost = Counter(
             "t2s_llm_cost_usd",
             "Known LLM cost in USD (0 for free-tier providers).",
@@ -85,6 +91,7 @@ class PipelineMetrics:
                 provider = call.provider or "unknown"
                 self.llm_calls.labels(provider, call.model).inc()
                 self.llm_tokens.labels(provider, call.model).inc(call.total_tokens)
+                self.llm_cached_tokens.labels(provider, call.model).inc(call.cached_tokens)
                 if (cost := call_cost(call, self._free_tier)) is not None:
                     self.llm_cost.labels(provider).inc(cost)
                 if call.fallback:

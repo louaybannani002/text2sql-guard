@@ -1,12 +1,18 @@
 """LLM configuration: which model serves each role, and how calls are bounded."""
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from pydantic import SecretStr
 
 from text2sql.config.settings import Settings
 from text2sql.llm._litellm import litellm
 from text2sql.llm.types import ModelRole, UsageRole
+
+if TYPE_CHECKING:
+    from aiohttp import ClientSession
+
+FAKE_PREFIX = "fake/"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +57,15 @@ class LLMConfig:
     local_api_base: str | None = None
     fallbacks: dict[ModelRole, str] = field(default_factory=dict)  # used on HTTP 429
     embedding_dimensions: int | None = 1536
+    # One aiohttp session for every completion (connection reuse); set by the API at startup.
+    http_session: "ClientSession | None" = field(default=None, compare=False, repr=False)
+    # Fake LLM mode (load tests): None = real providers; otherwise the delay scale (0 = none).
+    fake_delay_scale: float | None = None
+
+    @property
+    def fake(self) -> bool:
+        """Answers come from recordings, not from providers."""
+        return self.fake_delay_scale is not None
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "LLMConfig":
@@ -64,19 +79,25 @@ class LLMConfig:
             "main": settings.llm_fallback_main,
             "fast": settings.llm_fallback_fast,
         }
+        # In fake mode every name gets a "fake/" prefix: cache keys (which include the main
+        # model) can then never mix fake answers with real ones.
+        prefix = FAKE_PREFIX if settings.llm_fake_mode else ""
         return cls(
             models={
-                "main": settings.llm_model_main,
-                "fast": settings.llm_model_fast,
-                "local": settings.llm_model_local,
+                "main": prefix + settings.llm_model_main,
+                "fast": prefix + settings.llm_model_fast,
+                "local": prefix + settings.llm_model_local,
             },
-            embedding_model=settings.llm_embedding_model,
+            embedding_model=prefix + settings.llm_embedding_model,
             timeout_s=settings.llm_timeout_s,
             retry=RetryPolicy(max_retries=settings.llm_max_retries),
             api_keys={k: v for k, v in keys.items() if v is not None and v.get_secret_value()},
             local_api_base=settings.llm_local_api_base,
-            fallbacks={role: model for role, model in fallbacks.items() if model},
+            fallbacks={}
+            if settings.llm_fake_mode
+            else {role: model for role, model in fallbacks.items() if model},
             embedding_dimensions=settings.llm_embedding_dimensions,
+            fake_delay_scale=settings.llm_fake_delay_scale if settings.llm_fake_mode else None,
         )
 
     def _target_for(self, model: str, *, local: bool) -> ModelTarget:
@@ -100,6 +121,8 @@ class LLMConfig:
 
     def missing_keys(self, roles: tuple[ModelRole, ...] = ("main", "fast")) -> list[str]:
         """Models in use (``roles``, their fallbacks, embeddings) whose provider has no key."""
+        if self.fake:
+            return []
         models = [self.models[r] for r in roles] + [
             self.fallbacks[r] for r in roles if r in self.fallbacks
         ]

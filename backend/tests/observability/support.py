@@ -9,7 +9,7 @@ from text2sql.observability.langfuse_spans import Span
 from text2sql.pipeline.answer import Answer
 from text2sql.pipeline.trace import StageTrace, Trace
 
-STARTED = datetime(2026, 10, 20, 12, 0, 0, tzinfo=UTC)
+STARTED = datetime(2026, 10, 20, 12, 0, 0, tzinfo=UTC).timestamp()
 
 
 class FakeSink:

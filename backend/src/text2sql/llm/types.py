@@ -37,6 +37,9 @@ class Usage(BaseModel):
     fallback: bool = Field(
         default=False, description="Answered by the role's fallback model (primary hit HTTP 429)."
     )
+    cached_tokens: int = Field(
+        default=0, ge=0, description="Prompt tokens served from the provider's prompt cache."
+    )
 
 
 @dataclass(frozen=True, slots=True)

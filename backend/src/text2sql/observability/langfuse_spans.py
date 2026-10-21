@@ -91,7 +91,7 @@ def _metadata(prefix: str, values: Mapping[str, object]) -> dict[str, AttrValue]
 class _Builder:
     def __init__(self, answer: Answer, config: TraceConfig, new_span_id: Callable[[], str]) -> None:
         self.answer, self.config, self.new_span_id = answer, config, new_span_id
-        self.start_ns = int(answer.trace.started_at.timestamp() * 1_000_000_000)
+        self.start_ns = round(answer.trace.started_at * 1_000) * 1_000_000  # whole ms
         self.spans: list[Span] = []
 
     def nanos(self, offset_ms: float) -> str:
@@ -167,6 +167,7 @@ class _Builder:
             "input": call.prompt_tokens,
             "output": call.completion_tokens,
             "total": call.total_tokens,
+            "input_cached_tokens": call.cached_tokens,  # provider prompt cache hits
         }
         self.add(
             trace_id,

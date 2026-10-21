@@ -163,10 +163,10 @@ async def test_same_question_is_an_exact_hit(
     env.executor.outcomes = [ROWS]
     first = await env.ask()
 
-    completion = fake_llm(_guard())  # only the input guard runs: no generation
+    completion = fake_llm()  # an exact hit needs no LLM: rules + cache only
     second = await env.ask("  how many ORDERS are there per status ")
 
-    assert completion.outcomes == []
+    assert completion.calls == []
     assert env.executor.executed == [first.sql]  # not executed again
     assert (second.status, second.cache, second.attempts) == ("answered", "exact", 0)
     assert second.result == ROWS
@@ -181,6 +181,20 @@ async def test_same_question_is_an_exact_hit(
         ("validate", 0, "ok"),  # cached SQL is validated again
     ]
     assert _cache_output(second) == {"exact": "hit", "semantic": "skipped"}
+    assert second.trace.stages[0].output["classifier"] == "skipped_exact_cache"
+
+
+async def test_exact_hit_still_runs_the_input_rules(
+    env: Env, fake_llm: Callable[..., FakeCompletion]
+) -> None:
+    fake_llm(_guard(), _draft())
+    env.executor.outcomes = [ROWS]
+    await env.ask()
+    completion = fake_llm()
+    blocked = await env.ask(QUESTION + " DROP TABLE shop.orders")  # a rule hit, never the cache
+    assert blocked.status == "blocked"
+    assert completion.calls == []
+    assert [s.stage for s in blocked.trace.stages] == ["input_guard"]
 
 
 async def test_similar_question_reuses_the_sql_but_executes_again(
@@ -271,15 +285,18 @@ async def test_exact_entry_failing_validation_is_dropped(
     forged = entry.model_copy(update={"sql": "SELECT o.secret_col FROM shop.orders AS o"})
     await redis.set(exact_key, forged.model_dump_json())
 
-    fake_llm(_guard(), _draft())
+    # The forged exact entry fails validation and is dropped; the question is then screened by
+    # the classifier like a new one and served from its (valid) semantic entry.
+    completion = fake_llm(_guard())
     env.executor.outcomes = [ROWS]
     result = await env.ask()
 
-    assert (result.status, result.cache) == ("answered", None)
+    assert completion.outcomes == []
+    assert (result.status, result.cache) == ("answered", "semantic")
     assert _stages(result)[2] == ("validate", 0, "error")
     assert result.sql is not None
     assert "secret_col" not in result.sql
-    stored = await redis.get(exact_key)  # replaced by the freshly generated answer
+    stored = await redis.get(exact_key)  # replaced by the re-validated, re-executed answer
     assert stored is not None
     assert b"secret_col" not in stored
 
@@ -336,13 +353,16 @@ async def test_unanswered_questions_are_not_cached(
     assert await redis.keys("t2s:cache:*") == []
 
 
-async def test_blocked_questions_never_reach_the_cache(
-    env: Env, fake_llm: Callable[..., FakeCompletion]
+async def test_blocked_questions_are_never_stored_or_generated(
+    env: Env, redis: FakeAsyncRedis, fake_llm: Callable[..., FakeCompletion]
 ) -> None:
-    fake_llm(_guard("off_topic"))
+    # The read-only lookups run alongside the classifier; nothing is written for a block.
+    completion = fake_llm(_guard("off_topic"))
     result = await env.ask()
     assert result.status == "blocked"
-    assert "cache" not in [s.stage for s in result.trace.stages]
+    assert len(completion.calls) == 1  # the classifier only, never the generator
+    assert "generate" not in [s.stage for s in result.trace.stages]
+    assert await redis.keys("t2s:cache:*") == []
 
 
 async def test_no_catalog_skips_the_cache(
@@ -353,7 +373,7 @@ async def test_no_catalog_skips_the_cache(
     env.executor.outcomes = [ROWS]
     result = await env.ask()
     assert result.status == "answered"
-    assert _cache_output(result) == {"exact": "skipped", "semantic": "skipped"}
+    assert "cache" not in [s.stage for s in result.trace.stages]
 
 
 async def test_without_a_cache_nothing_changes(
