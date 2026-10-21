@@ -8,6 +8,18 @@ Guidance for Claude Code (and humans) working in this repository.
 into SQL by an LLM, the SQL is checked by a guard layer, executed read-only, and returned with
 full tracing.
 
+## MONEY RULE (highest priority, overrides everything else)
+
+Before ANY action that could cost money or use Azure credit, STOP, show an approval notice and
+wait for the owner's explicit "yes". This covers: `terraform apply` or any Azure resource
+creation, change or scale-up; starting the Postgres server; pushing images to ACR; running
+`deploy.yml` or `demo-up`; enabling any paid tier, plan or billing anywhere (Azure, Gemini,
+Groq, Langfuse, GitHub). The notice lists (1) exactly what will be created, started or changed,
+(2) the estimated cost per hour and per month and what it uses of the Azure for Students
+credit, (3) how to undo or stop it. Never add a payment method, upgrade a subscription or
+enable billing. If something costs more than estimated, stop it and say so at once. One "yes"
+covers only the action shown. Never delete anything without a "yes" either.
+
 ## Repository layout
 
 | Path        | Contents                                         |

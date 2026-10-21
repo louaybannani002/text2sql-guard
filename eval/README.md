@@ -157,7 +157,9 @@ Finish the `generate_v3` column later (it resumes from its checkpoint across day
 
 ```sh
 cd backend
-LLM_MODEL_MAIN=groq/openai/gpt-oss-120b LLM_MODEL_FAST=groq/openai/gpt-oss-20b   uv run python ../eval/run_eval.py --subset --no-cache --no-fallback --concurrency 1   --prompt generate_v3 --guard-prompt input_guard_v2
+LLM_MODEL_MAIN=groq/openai/gpt-oss-120b LLM_MODEL_FAST=groq/openai/gpt-oss-20b \
+  uv run python ../eval/run_eval.py --subset --no-cache --no-fallback --concurrency 1 \
+  --prompt generate_v3 --guard-prompt input_guard_v2
 ```
 
 ## Baseline (2026-10-09, `openai/gpt-5.4`, prompts `generate_v2` / `input_guard_v2`)
