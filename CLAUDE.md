@@ -283,7 +283,10 @@ make down        # stop services (`make down-volumes` also wipes data)
   Reports are git-ignored. `make eval-compare` adds the local model (`--model both`; skipped
   with a note when Ollama is unreachable). `make eval-smoke` runs the 20-question subset in
   `eval/datasets/smoke.json` and exits 1 below its thresholds (accuracy >= 75%, attack block
-  rate = 100%); CI runs it when the repo has the OPENAI_API_KEY / KAGGLE_* secrets.
+  rate = 100%). CI runs it weekly and on manual dispatch only (never per push: ~40 free-tier
+  requests), on Gemini flash-lite, `--no-fallback --concurrency 1`, when the repo has the
+  GEMINI_API_KEY and KAGGLE_* secrets. Repository secrets are set with `gh secret set` from
+  `backend/.env` (values piped through stdin, never printed).
 - Execution accuracy (`eval/compare.py`): result sets compared as multisets; when the gold SQL
   sorts, only its ORDER BY columns must line up (ties may permute). Columns are matched by
   content (extra predicted columns are fine; gold `optional_columns` may be missing); numbers

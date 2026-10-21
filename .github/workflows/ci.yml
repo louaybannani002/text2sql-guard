@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"  # weekly smoke evaluation (Monday 06:17 UTC)
 
 permissions:
   contents: read
@@ -105,9 +107,15 @@ jobs:
     name: Eval smoke (accuracy >= 75%, attack block rate = 100%)
     needs: backend
     runs-on: ubuntu-latest
-    # Needs real data and a real model: runs only when the repository has these secrets.
+    # Real data and real (free-tier) models: about 40 LLM requests per run, so it runs on the
+    # weekly schedule and on manual dispatch only, never on every push. It needs the Gemini key
+    # and a way to get the Olist data (Kaggle credentials); without them it skips itself.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: eval-smoke  # never two runs spending the same quota at once
+      cancel-in-progress: false
     env:
-      HAS_SECRETS: ${{ secrets.OPENAI_API_KEY != '' && secrets.KAGGLE_USERNAME != '' && secrets.KAGGLE_KEY != '' }}
+      HAS_SECRETS: ${{ secrets.GEMINI_API_KEY != '' && secrets.KAGGLE_USERNAME != '' && secrets.KAGGLE_KEY != '' }}
     defaults:
       run:
         working-directory: backend
@@ -115,7 +123,7 @@ jobs:
       - name: Skip without secrets
         if: env.HAS_SECRETS != 'true'
         working-directory: ${{ github.workspace }}  # backend/ does not exist before checkout
-        run: echo "::notice::eval-smoke skipped. Add OPENAI_API_KEY, KAGGLE_USERNAME and KAGGLE_KEY repository secrets to enable it."
+        run: echo "::notice::eval-smoke skipped. Add the GEMINI_API_KEY, KAGGLE_USERNAME and KAGGLE_KEY repository secrets to enable it."
       - uses: actions/checkout@v4
         if: env.HAS_SECRETS == 'true'
       - name: Install uv and dependencies
@@ -124,10 +132,10 @@ jobs:
           curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
           uv sync --all-groups --frozen
           uv run python -m text2sql.llm.tokens
-      - name: Write a throwaway .env (random local passwords, key from secrets)
+      - name: Write a throwaway .env (random local passwords, keys from secrets)
         if: env.HAS_SECRETS == 'true'
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           pw() { python3 -c "import secrets; print(secrets.token_urlsafe(24))"; }
           PG=$(pw); RD=$(pw); RE=$(pw); AP=$(pw)
@@ -139,10 +147,12 @@ jobs:
             echo "READER_DATABASE_URL=postgresql+asyncpg://t2s_reader:$RE@127.0.0.1:5432/text2sql"
             echo "APP_DATABASE_URL=postgresql+asyncpg://t2s_app:$AP@127.0.0.1:5432/text2sql"
             echo "REDIS_URL=redis://:$RD@127.0.0.1:6379/0"
-            echo "OPENAI_API_KEY=$OPENAI_API_KEY"
-            grep -E '^LLM_' .env.example
-            echo "LANGFUSE_PUBLIC_KEY=ci-unused"; echo "LANGFUSE_SECRET_KEY=ci-unused"
-            echo "LANGFUSE_HOST=https://cloud.langfuse.com"
+            echo "GEMINI_API_KEY=$GEMINI_API_KEY"
+            grep -E '^LLM_' .env.example | grep -vE '^LLM_(MODEL_MAIN|FALLBACK_)'
+            # gemini-3.8-flash allows 20 requests a day: CI uses flash-lite, no Groq fallback
+            # (Groq's daily tokens are kept for evaluations), concurrency 1 below.
+            echo "LLM_MODEL_MAIN=gemini/gemini-3.5-flash-lite"
+            echo "LANGFUSE_ENABLED=false"
             echo "JWT_SECRET=$(pw)$(pw)"; echo "DEMO_USERNAME=demo"; echo "DEMO_PASSWORD=$(pw)"
           } > .env
       - name: Cache the Olist CSVs
@@ -172,7 +182,9 @@ jobs:
           uv run python -m text2sql.db catalog
       - name: Run the smoke evaluation (fails below the thresholds)
         if: env.HAS_SECRETS == 'true'
-        run: uv run python ../eval/run_eval.py --smoke --no-cache
+        # One question at a time and no fallback: stays inside the free-tier rate limits;
+        # rate-limited questions are retried, then excluded as infrastructure errors.
+        run: uv run python ../eval/run_eval.py --smoke --no-cache --no-fallback --concurrency 1
       - name: Upload the reports
         if: always() && env.HAS_SECRETS == 'true'
         uses: actions/upload-artifact@v4

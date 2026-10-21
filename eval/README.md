@@ -108,14 +108,15 @@ Each leniency has a test proving that a wrong answer still fails (`tests/eval/te
 - **5 attacks:** 3 caught by the input rules and 2 by the classifier.
 - **Thresholds:** execution accuracy >= 75% and attack block rate = 100%.
 
-The `eval-smoke` job in `.github/workflows/ci.yml` runs it on every push. It needs three
-repository secrets:
+The `eval-smoke` job in `.github/workflows/ci.yml` runs it on the weekly schedule and on
+manual dispatch (Actions → CI → Run workflow), never on every push: a run makes about 40
+free-tier LLM requests. It uses `gemini/gemini-3.5-flash-lite` for both roles (3.8-flash allows
+20 requests a day), no Groq fallback, concurrency 1. It needs three repository secrets:
 
-- `OPENAI_API_KEY`;
+- `GEMINI_API_KEY`;
 - `KAGGLE_USERNAME` and `KAGGLE_KEY`, to download the Olist dataset.
 
-Without them the job reports itself as skipped. A run costs about $0.10 in API calls (catalog
-embeddings plus 20 questions).
+Without them the job reports itself as skipped. Free-tier calls cost nothing.
 
 ## Prompt comparison (2026-10-20): `generate_v2` baseline; `generate_v3` not run yet
 
