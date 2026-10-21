@@ -36,6 +36,55 @@ jobs:
       - run: uv run mypy src tests
       - run: uv run pytest
 
+  adversarial:
+    name: Adversarial guardrails (offline)
+    # Required check on main: every attack in eval/datasets/adversarial.jsonl that the input
+    # rules or the SQL validator must stop is replayed on every push, without any model.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+      - run: uv sync --all-groups --frozen
+      - name: Attacks against the input rules and the SQL validator
+        run: uv run pytest -q tests/eval/test_datasets.py -k "attack or benign_questions_pass_layer_1" tests/guard
+
+  security:
+    name: Security scans (pip-audit, pnpm audit, Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+      - name: pip-audit (all Python dependencies)
+        working-directory: backend
+        run: |
+          uv export --frozen --no-emit-project --no-hashes -o /tmp/requirements-audit.txt
+          uvx pip-audit==2.9.0 -r /tmp/requirements-audit.txt --progress-spinner off
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - name: pnpm audit (production dependencies fail the build, dev tooling is reported)
+        working-directory: frontend
+        run: |
+          pnpm audit --prod --audit-level high
+          pnpm audit --audit-level high || echo "::warning::dev-only findings, see docs/threat-model.md"
+      - name: Build both images
+        run: |
+          docker build -t text2sql-guard-api backend
+          docker build -t text2sql-guard-web frontend
+      - name: Trivy (fixable HIGH/CRITICAL vulnerabilities, baked-in secrets)
+        run: |
+          for image in text2sql-guard-api text2sql-guard-web; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:0.69.3 image --quiet --scanners vuln,secret \
+              --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$image"
+          done
+
   frontend:
     name: Frontend (lint, types, unit tests, build)
     runs-on: ubuntu-latest

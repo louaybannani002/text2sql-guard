@@ -56,6 +56,8 @@ make typecheck   # mypy --strict
 make test        # pytest (unit tests; `integration` marker deselected)
 make run         # uvicorn with reload on 127.0.0.1:8000
 make check       # lint + typecheck + test — must pass before every commit
+make adversarial # offline attack replay (input rules + validator); a required CI check
+make security    # pip-audit, pnpm audit (prod), Trivy on both images (fixable HIGH/CRITICAL fail)
 
 make up          # build + start the whole app: postgres, redis, API (:8000), web UI (:3000)
 make services    # postgres (pgvector, pg16) + redis 7 only, for `make run` / `pnpm dev`
@@ -461,6 +463,20 @@ make down        # stop services (`make down-volumes` also wipes data)
   actually read** — derive this from the database (`has_column_privilege('t2s_reader', …,
   'SELECT')`), never from a hard-coded list, so a new grant/revoke is picked up automatically.
   Restricted columns must not appear in prompts at all.
+
+## Security (`docs/threat-model.md`)
+
+- The threat model (STRIDE, with links to each control) is the reference: update it with any
+  new trust boundary, secret or guardrail.
+- Base images are pinned by version **and** digest (backend `python:*-slim-trixie`, frontend
+  build `node:*-alpine`, runtime distroless `nodejs22-debian13:nonroot`); bump both together and
+  re-run `make security`. Runtime images: non-root, code owned by root, no pip in the API image.
+- `make security` / the CI "Security scans" job fail on fixable HIGH/CRITICAL findings
+  (pip-audit, `pnpm audit --prod`, Trivy vuln + secret). Unfixed or dev-only findings are
+  documented in the threat model with the reason they do not apply.
+- `tests/support/log_secret_scan.py` scans every test's captured output for secret formats and
+  the fake env's secret values; a hit fails the run. Never print or log a secret in a test.
+- "Adversarial guardrails (offline)" is a required status check on `main` (branch protection).
 
 ## Docker compose (`docker-compose.yml`)
 

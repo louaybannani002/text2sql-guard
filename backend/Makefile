@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test test-integration run check up services down down-volumes logs e2e lighthouse eval eval-smoke eval-compare psql migrate load-data refresh-views catalog ask
+.PHONY: help install lint format typecheck test test-integration run check up services down down-volumes logs e2e lighthouse eval eval-smoke eval-compare psql migrate load-data refresh-views catalog ask adversarial security
 
 COMPOSE := docker compose -f ../docker-compose.yml --env-file .env
 
@@ -80,3 +80,22 @@ eval-compare: ## Main model vs local model (Ollama at LLM_LOCAL_API_BASE)
 
 ask: ## Draft SQL for a question (not executed): make ask Q="How many orders per state?"
 	uv run python -m text2sql.pipeline "$(Q)"
+
+adversarial: ## Offline attack checks (input rules + SQL validator over eval/datasets/adversarial.jsonl)
+	uv run pytest -q tests/eval/test_datasets.py -k "attack or benign_questions_pass_layer_1" tests/guard
+
+# Fails on HIGH/CRITICAL findings that have a fix; unfixed OS findings are reported only
+# (see docs/threat-model.md, "Dependency and image findings").
+TRIVY := docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache \
+	aquasec/trivy:0.69.3 image --quiet --scanners vuln,secret --severity HIGH,CRITICAL \
+	--ignore-unfixed --exit-code 1
+
+security: ## pip-audit, pnpm audit (prod) and Trivy scans of both images
+	mkdir -p .cache
+	uv export --frozen --no-emit-project --no-hashes -o .cache/requirements-audit.txt
+	uvx pip-audit==2.9.0 -r .cache/requirements-audit.txt --progress-spinner off
+	cd ../frontend && pnpm audit --prod --audit-level high
+	-cd ../frontend && pnpm audit --audit-level high  # dev tooling: reported, not failing
+	$(COMPOSE) build api web
+	$(TRIVY) text2sql-guard-api
+	$(TRIVY) text2sql-guard-web

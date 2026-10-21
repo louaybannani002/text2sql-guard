@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterator
 import pytest
 
 from tests.support.fake_llm import FakeCompletion, Outcome
+from tests.support.log_secret_scan import SecretScanner
 from text2sql.config.settings import Settings, get_settings
 from text2sql.llm._litellm import litellm
 
@@ -27,6 +28,21 @@ FAKE_ENV = {
     "LANGFUSE_HOST": "https://langfuse.example.com",
     "LANGFUSE_ENABLED": "false",  # never send anything from tests; enable per test if needed
 }
+
+
+SECRET_ENV_KEYS = (
+    "OPENAI_API_KEY",
+    "JWT_SECRET",
+    "DEMO_PASSWORD",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Scan the whole suite's captured logs for secrets (``tests/support/log_secret_scan.py``)."""
+    literals = [FAKE_ENV[key] for key in SECRET_ENV_KEYS]
+    config.pluginmanager.register(SecretScanner(literals), "log-secret-scan")
 
 
 @pytest.fixture
