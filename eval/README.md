@@ -114,7 +114,8 @@ free-tier LLM requests. It uses `gemini/gemini-3.5-flash-lite` for both roles (3
 20 requests a day), no Groq fallback, concurrency 1. It needs three repository secrets:
 
 - `GEMINI_API_KEY`;
-- `KAGGLE_USERNAME` and `KAGGLE_KEY`, to download the Olist dataset.
+- `KAGGLE_API_TOKEN` (a new-style Kaggle API token, kaggle CLI >= 1.8.0), to download the
+  Olist dataset.
 
 Without them the job reports itself as skipped. Free-tier calls cost nothing.
 

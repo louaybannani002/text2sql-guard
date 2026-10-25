@@ -109,13 +109,13 @@ jobs:
     runs-on: ubuntu-latest
     # Real data and real (free-tier) models: about 40 LLM requests per run, so it runs on the
     # weekly schedule and on manual dispatch only, never on every push. It needs the Gemini key
-    # and a way to get the Olist data (Kaggle credentials); without them it skips itself.
+    # and a Kaggle API token for the Olist data; without them it skips itself.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     concurrency:
       group: eval-smoke  # never two runs spending the same quota at once
       cancel-in-progress: false
     env:
-      HAS_SECRETS: ${{ secrets.GEMINI_API_KEY != '' && secrets.KAGGLE_USERNAME != '' && secrets.KAGGLE_KEY != '' }}
+      HAS_SECRETS: ${{ secrets.GEMINI_API_KEY != '' && secrets.KAGGLE_API_TOKEN != '' }}
     defaults:
       run:
         working-directory: backend
@@ -123,7 +123,7 @@ jobs:
       - name: Skip without secrets
         if: env.HAS_SECRETS != 'true'
         working-directory: ${{ github.workspace }}  # backend/ does not exist before checkout
-        run: echo "::notice::eval-smoke skipped. Add the GEMINI_API_KEY, KAGGLE_USERNAME and KAGGLE_KEY repository secrets to enable it."
+        run: echo "::notice::eval-smoke skipped. Add the GEMINI_API_KEY and KAGGLE_API_TOKEN repository secrets to enable it."
       - uses: actions/checkout@v4
         if: env.HAS_SECRETS == 'true'
       - name: Install uv and dependencies
@@ -164,11 +164,12 @@ jobs:
       - name: Download the Olist dataset
         if: env.HAS_SECRETS == 'true'
         env:
-          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
-          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          # New-style Kaggle API token (read from the environment by kaggle CLI >= 1.8.0).
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           if [ ! -f data/raw/olist_orders_dataset.csv ]; then
-            uvx kaggle datasets download -d olistbr/brazilian-ecommerce -p data/raw --unzip
+            uvx --from "kaggle>=1.8.0" kaggle datasets download olistbr/brazilian-ecommerce \
+              -p data/raw --unzip
           fi
       - name: Start postgres and redis
         if: env.HAS_SECRETS == 'true'

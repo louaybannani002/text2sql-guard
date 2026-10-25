@@ -285,7 +285,7 @@ make down        # stop services (`make down-volumes` also wipes data)
   `eval/datasets/smoke.json` and exits 1 below its thresholds (accuracy >= 75%, attack block
   rate = 100%). CI runs it weekly and on manual dispatch only (never per push: ~40 free-tier
   requests), on Gemini flash-lite, `--no-fallback --concurrency 1`, when the repo has the
-  GEMINI_API_KEY and KAGGLE_* secrets. Repository secrets are set with `gh secret set` from
+  GEMINI_API_KEY and KAGGLE_API_TOKEN secrets (new-style Kaggle token, CLI >= 1.8.0). Repository secrets are set with `gh secret set` from
   `backend/.env` (values piped through stdin, never printed).
 - Execution accuracy (`eval/compare.py`): result sets compared as multisets; when the gold SQL
   sorts, only its ORDER BY columns must line up (ties may permute). Columns are matched by
