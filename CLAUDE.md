@@ -26,7 +26,7 @@ covers only the action shown. Never delete anything without a "yes" either.
 |-------------|--------------------------------------------------|
 | `backend/`  | Python 3.12 service, managed with **uv**          |
 | `frontend/` | Next.js UI (App Router, TS strict, Tailwind, shadcn/ui), pnpm |
-| `infra/`    | Terraform (not started yet)                       |
+| `infra/`    | Terraform for the Azure demo hosting (docs/deployment.md) |
 | `eval/`     | Evaluation datasets and harness                   |
 | `load/`     | k6 load test (fake LLM mode), real-LLM latency run |
 | `docs/`     | Architecture notes and ADRs                       |
@@ -41,7 +41,7 @@ Backend packages under `backend/src/text2sql/`:
 | `retrieval`     | Schema / few-shot context retrieval                     |
 | `guard`         | Static + policy validation of generated SQL             |
 | `executor`      | Read-only, sandboxed SQL execution                      |
-| `pipeline`      | Orchestrates question → SQL → guard → execute           |
+| `pipeline`      | Orchestrates question â†’ SQL â†’ guard â†’ execute           |
 | `api`           | FastAPI HTTP layer (`create_app` factory)               |
 | `cache`         | Caching of SQL and results                              |
 | `observability` | Structured logging, tracing (Langfuse), metrics         |
@@ -55,7 +55,7 @@ make format      # auto-fix
 make typecheck   # mypy --strict
 make test        # pytest (unit tests; `integration` marker deselected)
 make run         # uvicorn with reload on 127.0.0.1:8000
-make check       # lint + typecheck + test — must pass before every commit
+make check       # lint + typecheck + test â€” must pass before every commit
 make adversarial # offline attack replay (input rules + validator); a required CI check
 make security    # pip-audit, pnpm audit (prod), Trivy on both images (fixable HIGH/CRITICAL fail)
 
@@ -96,10 +96,10 @@ make down        # stop services (`make down-volumes` also wipes data)
 
 - `DATABASE_URL` (admin) is for migrations and loading only, never request handling.
   `READER_DATABASE_URL` / `APP_DATABASE_URL` hold the role passwords; `make migrate` syncs them.
-- A new `shop` table is **not** readable by `t2s_reader` until its migration grants it — decide
+- A new `shop` table is **not** readable by `t2s_reader` until its migration grants it â€” decide
   which columns are personal data first (grant column-by-column if any are).
 - `t2s_reader`'s read-only mode and timeouts are session *defaults* the session itself can
-  change (`SET`, `BEGIN READ WRITE`, `ALTER ROLE … SET`). Privileges are the real wall; the
+  change (`SET`, `BEGIN READ WRITE`, `ALTER ROLE â€¦ SET`). Privileges are the real wall; the
   executor must still run each query in its own `READ ONLY` transaction with `SET LOCAL`
   limits, and the guard must reject anything but a single read-only statement.
 - Unique / repeat customers are counted with `shop.customer_person.person_key` (materialized
@@ -112,7 +112,7 @@ make down        # stop services (`make down-volumes` also wipes data)
   It returns `LLMResult(output, usage)`; log or persist `usage` (tokens, latency, cost, attempts).
 - Roles `main` / `fast` / `local` map to LiteLLM model names in env (`LLM_MODEL_*`); never
   hard-code a model name in code. Catch `LLMError` (subclasses: timeout, provider, output
-  validation — the latter carries `raw_output`, `errors` and the `usage` already spent).
+  validation â€” the latter carries `raw_output`, `errors` and the `usage` already spent).
 - The API calls `text2sql.llm.warmup.warm_up` at startup: LiteLLM imports the provider SDK
   lazily on its first call, which would otherwise freeze the event loop inside a request.
 - Import LiteLLM only via `text2sql.llm._litellm` (it pins the offline price map, disables
@@ -128,7 +128,7 @@ make down        # stop services (`make down-volumes` also wipes data)
 - Prompts live in `src/text2sql/llm/prompts/<name>_v<N>.system.md` + `.user.md` (a
   `string.Template`), loaded with `load_prompt("<name>_v<N>")`; the caller pins the version
   (e.g. `PROMPT_NAME = "generate_v1"` in `pipeline/generate.py`). Never change a released
-  version's meaning in place — add `_v<N+1>` and switch the constant, so the change is one
+  version's meaning in place â€” add `_v<N+1>` and switch the constant, so the change is one
   reviewable diff and old runs stay reproducible. User input goes only into the user template,
   inside tags (`<question>`), never into the system prompt.
 - A system prompt can include a shared fragment with a line `{{include:<name>_v<N>}}`
@@ -146,7 +146,7 @@ make down        # stop services (`make down-volumes` also wipes data)
   free-text customer columns (`NO_EXAMPLE_VALUES` in `retrieval/catalog.py`) get no sample values.
 - Few-shot examples live in `backend/db/seeds/examples.toml` (source of truth, human-reviewed)
   and are synced to `app.examples`. Tests parse every example, check the generation rules
-  statically, and execute it as `t2s_reader` — a broken example fails the build.
+  statically, and execute it as `t2s_reader` â€” a broken example fails the build.
 - `schema_version` = hash of all documents. Embeddings are recomputed only for documents or
   examples whose content (or the embedding model) changed; `make catalog FORCE=1` re-embeds all.
   Run `make catalog` after any migration that changes `shop` or its comments.
@@ -173,7 +173,7 @@ make down        # stop services (`make down-volumes` also wipes data)
 
 - `check_input(question)` runs before anything else. Layer 1 (`guard/input_rules.py`, no LLM):
   max 500 chars, no control/invisible characters, SQL *statement shapes* (`DROP TABLE`,
-  `DELETE FROM`, `UPDATE … SET`, `GRANT SELECT … TO`), injection phrases, prompt-tag forgery;
+  `DELETE FROM`, `UPDATE â€¦ SET`, `GRANT SELECT â€¦ TO`), injection phrases, prompt-tag forgery;
   text is NFKC-normalised first. Layer 2 (`fast` model, prompt `input_guard_v2`) classifies
   `data_question | off_topic | prompt_injection | harmful`, only if layer 1 passed.
   The prompt (`input_guard_v2`) asks *what* is ignored, overridden or looked up: the data, the
@@ -193,17 +193,17 @@ make down        # stop services (`make down-volumes` also wipes data)
 
 | Endpoint              | Auth   | Purpose                                                        |
 |-----------------------|--------|----------------------------------------------------------------|
-| `POST /v1/auth/token` | —      | Demo user (`DEMO_USERNAME`/`DEMO_PASSWORD`) → HS256 JWT        |
-| `POST /v1/query`      | Bearer | `{question}` → SSE stream (see below)                          |
+| `POST /v1/auth/token` | â€”      | Demo user (`DEMO_USERNAME`/`DEMO_PASSWORD`) â†’ HS256 JWT        |
+| `POST /v1/query`      | Bearer | `{question}` â†’ SSE stream (see below)                          |
 | `GET /v1/schema`      | Bearer | Tables + readable columns, from `app.schema_docs`              |
-| `POST /v1/feedback`   | Bearer | `{query_id, rating 1..5, comment}` → `app.feedback` (upsert)   |
-| `GET /healthz`        | —      | Liveness (no I/O)                                              |
-| `GET /readyz`         | —      | 200 / 503 with `{database, redis}` checks                      |
+| `POST /v1/feedback`   | Bearer | `{query_id, rating 1..5, comment}` â†’ `app.feedback` (upsert)   |
+| `GET /healthz`        | â€”      | Liveness (no I/O)                                              |
+| `GET /readyz`         | â€”      | 200 / 503 with `{database, redis}` checks                      |
 
 - **Stateless.** Queries go to `app.queries`, feedback to `app.feedback` (migration 0011), and
   rate-limit counters to Redis. Never keep request state in process memory. Pools and clients
   are created in the lifespan (`api/services.build_services`) and closed on shutdown. Routes see
-  only the `Services` dataclass, so tests swap fakes in through `create_app(services_factory=…)`.
+  only the `Services` dataclass, so tests swap fakes in through `create_app(services_factory=â€¦)`.
 - **SSE events** on `/v1/query`, in order:
   1. `query` (`{query_id}`);
   2. the orchestrator events `stage_started` / `stage_done` / `error`;
@@ -463,7 +463,7 @@ make down        # stop services (`make down-volumes` also wipes data)
   is not a projection and is fine.
 - **Schema catalog (prompt 7)** must include views and materialized views (e.g.
   `shop.customer_person`), not only tables, and must list **only the columns `t2s_reader` can
-  actually read** — derive this from the database (`has_column_privilege('t2s_reader', …,
+  actually read** â€” derive this from the database (`has_column_privilege('t2s_reader', â€¦,
   'SELECT')`), never from a hard-coded list, so a new grant/revoke is picked up automatically.
   Restricted columns must not appear in prompts at all.
 
@@ -498,7 +498,7 @@ make down        # stop services (`make down-volumes` also wipes data)
 Local service credentials (`POSTGRES_*`, `REDIS_*`) live in `backend/.env` and must match
 `DATABASE_URL` / `REDIS_URL`. SQL files in `backend/db/init/` run once, on an empty volume.
 
-Without `make` (e.g. plain Windows), run the underlying `uv run …` commands from the Makefile.
+Without `make` (e.g. plain Windows), run the underlying `uv run â€¦` commands from the Makefile.
 
 ## Conventions (non-negotiable)
 
@@ -508,7 +508,7 @@ Without `make` (e.g. plain Windows), run the underlying `uv run …` commands fr
    no `# type: ignore` without an error code and a reason.
 3. **Small modules.** One responsibility per module; aim for < 200 lines. Prefer pure functions
    and small classes with explicit dependencies (pass them in, don't import globals).
-4. **Every module has tests.** `tests/` mirrors `src/text2sql/` — `src/text2sql/guard/foo.py` is
+4. **Every module has tests.** `tests/` mirrors `src/text2sql/` â€” `src/text2sql/guard/foo.py` is
    tested by `tests/guard/test_foo.py`. New code without tests is not done.
 5. **No secrets in code.** All config comes from env vars via `text2sql.config.Settings`.
    Secrets are `SecretStr` with no default. Never hard-code, log, print or commit a secret.

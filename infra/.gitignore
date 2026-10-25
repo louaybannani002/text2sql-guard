@@ -1,0 +1,7 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+# local-only override used to plan before the remote state exists
+local_override.tf
