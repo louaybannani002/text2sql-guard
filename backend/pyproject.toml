@@ -23,6 +23,13 @@ dependencies = [
     "uvicorn[standard]>=0.32",
 ]
 
+[tool.uv]
+# litellm pins filelock<4, but the fixes for GHSA-v4x8-3wr5-3wq8, GHSA-9vhv-jxww-xfm5 and
+# GHSA-567q-5qvw-pf92 are only in filelock 4.2.1. filelock is used by huggingface-hub's model
+# downloads only (a path this app never runs); the full test suite passes with 4.x. Drop this
+# override once litellm allows filelock 4.
+override-dependencies = ["filelock>=4.2.1"]
+
 [dependency-groups]
 dev = [
     "asyncpg-stubs>=0.31.3",

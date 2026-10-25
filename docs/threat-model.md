@@ -106,6 +106,7 @@ injected at runtime, never baked into images.
 | Scan | Result (2026-10-21) | Decision |
 |---|---|---|
 | pip-audit, all Python dependencies | certifi 2026.7.22 (PYSEC-2026-4320) | fixed: upgraded to 2026.10.19 |
+| pip-audit (2026-10-25) | opentelemetry-api 1.45.0 (GHSA-xcq7-p3pf-p88h); filelock 3.32.7 (GHSA-v4x8-3wr5-3wq8, GHSA-9vhv-jxww-xfm5, GHSA-567q-5qvw-pf92) | fixed: opentelemetry-api 1.45.1; filelock 4.2.4 through a uv override (`pyproject.toml`), because litellm pins `filelock<4`; filelock is only used by huggingface-hub downloads, which the app never runs, and the full suite passes. The audit checks the pinned export as is (`--no-deps`) |
 | pnpm audit, production dependencies | `braces` through `shadcn`, which was wrongly a runtime dependency | fixed: `shadcn` moved to devDependencies (it is a CSS import compiled at build time) |
 | pnpm audit, dev dependencies | `braces` <= 3.0.3 (GHSA-vfj7-8cjw-p6xm, ReDoS-style stack exhaustion), no patched release | does not apply: only the shadcn CLI uses it, run by a developer on trusted input, never shipped; reported in CI as a warning |
 | Trivy, API image | 44 HIGH/CRITICAL in Debian 13 base packages (util-linux, gzip, acl...), **0 with a fix** | moved from Debian 12 (63 findings) to 13; the app does not invoke these tools (no shell use, non-root, read-only); CI fails as soon as a fix is published |

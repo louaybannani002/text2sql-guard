@@ -65,7 +65,8 @@ jobs:
         working-directory: backend
         run: |
           uv export --frozen --no-emit-project --no-hashes -o /tmp/requirements-audit.txt
-          uvx pip-audit==2.9.0 -r /tmp/requirements-audit.txt --progress-spinner off
+          # The export is fully pinned by uv.lock (overrides included): audit it as is.
+          uvx pip-audit==2.9.0 -r /tmp/requirements-audit.txt --no-deps --disable-pip --progress-spinner off
       - uses: actions/setup-node@v4
         with:
           node-version: 22

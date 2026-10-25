@@ -93,7 +93,7 @@ TRIVY := docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-c
 security: ## pip-audit, pnpm audit (prod) and Trivy scans of both images
 	mkdir -p .cache
 	uv export --frozen --no-emit-project --no-hashes -o .cache/requirements-audit.txt
-	uvx pip-audit==2.9.0 -r .cache/requirements-audit.txt --progress-spinner off
+	uvx pip-audit==2.9.0 -r .cache/requirements-audit.txt --no-deps --disable-pip --progress-spinner off
 	cd ../frontend && pnpm audit --prod --audit-level high
 	-cd ../frontend && pnpm audit --audit-level high  # dev tooling: reported, not failing
 	$(COMPOSE) build api web
